@@ -39,5 +39,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkey.start()
 
         coordinator.bootstrap()
+
+        // After sleep macOS sometimes silently stops delivering events to
+        // global monitors — re-register them on every wake.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.coordinator.recoverAfterWake()
+            self?.hotkey.start()
+        }
     }
 }

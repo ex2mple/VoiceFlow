@@ -11,6 +11,7 @@
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>VoiceFlow записывает голос, чтобы превратить его в текст. Всё распознаётся локально.</string>
 </dict>

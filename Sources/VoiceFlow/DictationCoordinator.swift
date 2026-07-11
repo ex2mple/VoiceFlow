@@ -152,7 +152,32 @@ final class DictationCoordinator {
             return
         }
         state = .processing
+        startProcessingWatchdog()
         process(AudioGain.normalized(samples))
+    }
+
+    /// Belt-and-braces: if the pipeline ever hangs (network died mid-request
+    /// during sleep, etc.), unstick the state machine so the hotkey works again.
+    private var watchdog: Timer?
+
+    private func startProcessingWatchdog() {
+        watchdog?.invalidate()
+        watchdog = Timer.scheduledTimer(withTimeInterval: 60, repeats: false) { [weak self] _ in
+            guard let self, self.state == .processing else { return }
+            self.state = .idle
+            self.onNotice?("Обработка зависла — сброшено")
+        }
+    }
+
+    /// Called on wake from sleep: recover from any half-dead state.
+    func recoverAfterWake() {
+        if state == .recording {
+            // The audio engine rarely survives sleep; drop the session.
+            _ = recorder.stop()
+            stopPreviewLoop()
+            autoStopTimer?.invalidate()
+            state = .idle
+        }
     }
 
     private func playSound(_ name: String) {

@@ -6,19 +6,32 @@ APP := build/$(APP_NAME).app
 SIGN_ID := $(shell security find-identity -v -p codesigning 2>/dev/null \
 	| grep -q "VoiceFlow Dev" && echo VoiceFlow Dev || echo -)
 
-.PHONY: app run install test clean cert whisper model ai
+.PHONY: app run install test clean cert whisper model ai icon dist
 
 whisper:
 	./scripts/build-whisper.sh
 
-app:
+icon: build/AppIcon.icns
+
+build/AppIcon.icns: scripts/make-icon.swift
+	mkdir -p build
+	swift scripts/make-icon.swift
+	iconutil -c icns build/AppIcon.iconset -o build/AppIcon.icns
+
+app: build/AppIcon.icns
 	swift build -c release
 	rm -rf $(APP)
-	mkdir -p $(APP)/Contents/MacOS
+	mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
 	cp .build/release/$(APP_NAME) $(APP)/Contents/MacOS/
 	cp scripts/Info.plist $(APP)/Contents/Info.plist
+	cp build/AppIcon.icns $(APP)/Contents/Resources/
 	codesign --force --sign "$(SIGN_ID)" $(APP)
 	@echo "Built $(APP) (signed: $(SIGN_ID))"
+
+# Release archive for GitHub: zip preserving the bundle structure.
+dist: app
+	cd build && ditto -c -k --keepParent $(APP_NAME).app $(APP_NAME).zip
+	@echo "build/$(APP_NAME).zip"
 
 cert:
 	./scripts/make-signing-cert.sh
