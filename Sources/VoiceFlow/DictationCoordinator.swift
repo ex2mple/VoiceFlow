@@ -29,6 +29,11 @@ final class DictationCoordinator {
     // MARK: - Startup
 
     func bootstrap() {
+        if AppSettings.cleanupEnabled {
+            Task { [ollama] in
+                await TextCleaner(client: ollama, model: AppSettings.ollamaModel).warmUp()
+            }
+        }
         if ModelLocator.modelExists {
             loadModel()
         } else {
@@ -104,19 +109,19 @@ final class DictationCoordinator {
             }
             Task { [weak self] in
                 guard let self else { return }
-                var text = transcript
-                var cleaned = false
-                if AppSettings.cleanupEnabled {
-                    let result = await TextCleaner(
+                let cleanupEnabled = AppSettings.cleanupEnabled
+                let result: CleanupResult
+                if cleanupEnabled {
+                    result = await TextCleaner(
                         client: self.ollama, model: AppSettings.ollamaModel
                     ).clean(transcript)
-                    text = result.text
-                    cleaned = result.wasCleaned
+                } else {
+                    result = CleanupResult(text: transcript, wasCleaned: false)
                 }
                 await MainActor.run {
-                    self.history.add(text)
-                    TextInserter.insert(text)
-                    if AppSettings.cleanupEnabled && !cleaned {
+                    self.history.add(result.text)
+                    TextInserter.insert(result.text)
+                    if cleanupEnabled && !result.wasCleaned {
                         self.onNotice?("Вставлено без ИИ-чистки")
                     }
                     self.state = .idle

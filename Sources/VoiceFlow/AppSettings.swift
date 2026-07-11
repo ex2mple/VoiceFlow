@@ -42,7 +42,7 @@ enum AppSettings {
     }
 
     static var ollamaModel: String {
-        get { d.string(forKey: "ollamaModel") ?? "gemma3:4b" }
+        get { d.string(forKey: "ollamaModel") ?? "qwen3:4b-instruct" }
         set { d.set(newValue, forKey: "ollamaModel") }
     }
 }

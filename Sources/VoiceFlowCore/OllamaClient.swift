@@ -12,7 +12,7 @@ public final class OllamaClient {
     private let session: URLSession
 
     public init(baseURL: URL = URL(string: "http://127.0.0.1:11434")!,
-                timeout: TimeInterval = 8) {
+                timeout: TimeInterval = 15) {
         self.baseURL = baseURL
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = timeout
@@ -28,17 +28,23 @@ public final class OllamaClient {
     }
 
     public func chat(model: String, system: String, user: String) async throws -> String {
+        try await chat(model: model, messages: [
+            ["role": "system", "content": system],
+            ["role": "user", "content": user],
+        ])
+    }
+
+    public func chat(model: String, messages: [[String: String]]) async throws -> String {
         var request = URLRequest(url: baseURL.appendingPathComponent("api/chat"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let body: [String: Any] = [
             "model": model,
             "stream": false,
-            "messages": [
-                ["role": "system", "content": system],
-                ["role": "user", "content": user],
-            ],
-            "options": ["temperature": 0.1],
+            // Keep the model resident so dictation never pays the ~6s cold load.
+            "keep_alive": "30m",
+            "messages": messages,
+            "options": ["temperature": 0],
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 

@@ -47,7 +47,7 @@ ai:
 	brew list ollama >/dev/null 2>&1 || brew install ollama
 	brew services start ollama
 	sleep 2
-	ollama pull gemma3:4b
+	ollama pull qwen3:4b-instruct
 
 clean:
 	rm -rf .build build

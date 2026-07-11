@@ -36,7 +36,7 @@ func runE2ETestsIfRequested() {
             let client = OllamaClient()
             available = await client.isAvailable()
             if available {
-                result = await TextCleaner(client: client, model: "gemma3:4b").clean(transcript)
+                result = await TextCleaner(client: client, model: "qwen3:4b-instruct").clean(transcript)
             }
             semaphore.signal()
         }
