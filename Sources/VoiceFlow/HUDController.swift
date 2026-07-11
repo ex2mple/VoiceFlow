@@ -9,9 +9,9 @@ final class HUDController {
     }
 
     private static let waveOnlyWidth: CGFloat = 230
-    private static let transcriptWidth: CGFloat = 340
+    private static let transcriptWidth: CGFloat = 460
     private static let waveHeight: CGFloat = 44
-    private static let textHeight: CGFloat = 46
+    private static let textHeight: CGFloat = 96
 
     private lazy var panel: NSPanel = makePanel()
     private let wave = WaveView()
@@ -78,7 +78,7 @@ final class HUDController {
         transcriptLabel.font = .systemFont(ofSize: 13)
         transcriptLabel.textColor = .labelColor
         transcriptLabel.alignment = .center
-        transcriptLabel.maximumNumberOfLines = 2
+        transcriptLabel.maximumNumberOfLines = 5
         // The tail of the transcript is the fresh part — clip the beginning.
         transcriptLabel.lineBreakMode = .byTruncatingHead
 

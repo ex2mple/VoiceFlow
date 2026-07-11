@@ -1,5 +1,6 @@
 import AppKit
 import ServiceManagement
+import VoiceFlowCore
 
 final class StatusItemController: NSObject, NSMenuDelegate {
     private let item: NSStatusItem
@@ -135,6 +136,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         historyRoot.submenu = NSMenu()
         historyRoot.tag = MenuTag.history.rawValue
         menu.addItem(historyRoot)
+
+        let statsRoot = NSMenuItem(title: "Статистика", action: nil, keyEquivalent: "")
+        statsRoot.submenu = NSMenu()
+        statsRoot.tag = MenuTag.stats.rawValue
+        menu.addItem(statsRoot)
         menu.addItem(.separator())
 
         let login = NSMenuItem(
@@ -157,7 +163,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private enum MenuTag: Int {
-        case cleanup = 1, history, login, accessibility, liveText
+        case cleanup = 1, history, login, accessibility, liveText, stats
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -196,6 +202,22 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 i.target = self
                 i.representedObject = entry.text
                 historyMenu.addItem(i)
+            }
+        }
+
+        if let statsMenu = menu.item(withTag: MenuTag.stats.rawValue)?.submenu {
+            statsMenu.removeAllItems()
+            let s = coordinator.stats.snapshot()
+            let lines = [
+                "Сегодня: \(s.wordsToday) \(StatsStore.wordsForm(s.wordsToday))",
+                "Всего: \(s.wordsTotal) \(StatsStore.wordsForm(s.wordsTotal)) · диктовок: \(s.dictationsTotal)",
+                "Наговорено: \(Int((s.secondsRecorded / 60).rounded())) мин",
+                "Сэкономлено у клавиатуры: ≈\(s.savedMinutes) мин",
+            ]
+            for line in lines {
+                let i = NSMenuItem(title: line, action: nil, keyEquivalent: "")
+                i.isEnabled = false
+                statsMenu.addItem(i)
             }
         }
 

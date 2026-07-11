@@ -30,6 +30,7 @@ final class DictationCoordinator {
     }
 
     let history = HistoryStore()
+    let stats = StatsStore()
     private let recorder = AudioRecorder()
     private let ollama = OllamaClient()
     private var whisper: WhisperEngine?
@@ -38,6 +39,12 @@ final class DictationCoordinator {
     private var previewBusy = false
     /// What we've already typed into the focused app in "cursor" live mode.
     private var typedPreview = ""
+    /// Hands-free: a quick tap (< this) keeps recording until the next press.
+    private let tapThreshold: TimeInterval = 0.35
+    private var pressedAt: Date?
+    private var autoStopTimer: Timer?
+    /// Safety net for hands-free mode — stop after 3 minutes.
+    private let maxRecordingSeconds: TimeInterval = 180
     /// Preview transcribes at most this much of the tail — keeps each pass
     /// fast even during very long dictations.
     private let previewWindowSeconds: Double = 25
@@ -87,6 +94,11 @@ final class DictationCoordinator {
     // MARK: - Hotkey
 
     func hotkeyPressed() {
+        // Second press while a hands-free recording runs = «стоп».
+        if state == .recording {
+            finishRecording()
+            return
+        }
         guard state == .idle, whisper != nil else { return }
         guard Permissions.microphoneGranted else {
             Permissions.requestMicrophone { [weak self] granted in
@@ -98,7 +110,13 @@ final class DictationCoordinator {
             try recorder.start()
             state = .recording
             typedPreview = ""
+            pressedAt = Date()
             startPreviewLoop()
+            autoStopTimer = Timer.scheduledTimer(
+                withTimeInterval: maxRecordingSeconds, repeats: false
+            ) { [weak self] _ in
+                self?.finishRecording()
+            }
         } catch {
             onNotice?(error.localizedDescription)
         }
@@ -106,6 +124,18 @@ final class DictationCoordinator {
 
     func hotkeyReleased() {
         guard state == .recording else { return }
+        // Quick tap → hands-free: recording continues until the next press.
+        if let pressedAt, Date().timeIntervalSince(pressedAt) < tapThreshold {
+            return
+        }
+        finishRecording()
+    }
+
+    private func finishRecording() {
+        guard state == .recording else { return }
+        autoStopTimer?.invalidate()
+        autoStopTimer = nil
+        pressedAt = nil
         stopPreviewLoop()
         let samples = recorder.stop()
         guard AudioGate.shouldTranscribe(samples: samples, sampleRate: AudioRecorder.sampleRate) else {
@@ -169,6 +199,7 @@ final class DictationCoordinator {
     // MARK: - Pipeline
 
     private func process(_ samples: [Float]) {
+        let recordedSeconds = Double(samples.count) / AudioRecorder.sampleRate
         whisperQueue.async { [weak self] in
             guard let self, let whisper = self.whisper else { return }
             let raw = whisper.transcribe(samples)
@@ -190,6 +221,7 @@ final class DictationCoordinator {
                 }
                 await MainActor.run {
                     self.history.add(result.text)
+                    self.stats.record(text: result.text, duration: recordedSeconds)
                     if self.typedPreview.isEmpty {
                         TextInserter.insert(result.text)
                     } else {
