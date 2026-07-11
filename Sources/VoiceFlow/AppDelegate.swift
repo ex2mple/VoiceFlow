@@ -32,6 +32,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         hotkey.onPress = { [weak self] in self?.coordinator.hotkeyPressed() }
         hotkey.onRelease = { [weak self] in self?.coordinator.hotkeyReleased() }
+        hotkey.onTranslatePress = { [weak self] in
+            self?.coordinator.hotkeyPressed(translate: true)
+        }
+        hotkey.onTranslateRelease = { [weak self] in self?.coordinator.hotkeyReleased() }
         hotkey.start()
 
         coordinator.bootstrap()

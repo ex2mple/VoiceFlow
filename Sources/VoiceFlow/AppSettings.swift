@@ -41,6 +41,22 @@ enum AppSettings {
         set { d.set(newValue.rawValue, forKey: "hotkey") }
     }
 
+    /// Translation mode always lives on «the other» modifier key.
+    static var translateHotkey: Hotkey {
+        hotkey == .rightOption ? .rightCommand : .rightOption
+    }
+
+    static var soundsEnabled: Bool {
+        get { d.object(forKey: "soundsEnabled") as? Bool ?? true }
+        set { d.set(newValue, forKey: "soundsEnabled") }
+    }
+
+    /// nil = системный микрофон по умолчанию.
+    static var inputDeviceUID: String? {
+        get { d.string(forKey: "inputDeviceUID") }
+        set { d.set(newValue, forKey: "inputDeviceUID") }
+    }
+
     static var ollamaModel: String {
         get { d.string(forKey: "ollamaModel") ?? "qwen3:4b-instruct" }
         set { d.set(newValue, forKey: "ollamaModel") }

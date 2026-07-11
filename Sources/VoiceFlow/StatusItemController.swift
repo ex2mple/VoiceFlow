@@ -44,7 +44,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             statusLine.title = "Скачивается модель Whisper (\(percent)%)"
         case .idle:
             button.image = symbol("mic")
-            statusLine.title = "Готов: зажми \(AppSettings.hotkey.title) и говори"
+            statusLine.title = "Диктовка: \(AppSettings.hotkey.title) · Перевод EN: \(AppSettings.translateHotkey.title)"
         case .recording:
             button.image = symbol("record.circle.fill")
             statusLine.title = "Запись…"
@@ -99,6 +99,17 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let hotkeyRoot = NSMenuItem(title: "Клавиша диктовки", action: nil, keyEquivalent: "")
         hotkeyRoot.submenu = hotkeyMenu
         menu.addItem(hotkeyRoot)
+
+        let micRoot = NSMenuItem(title: "Микрофон", action: nil, keyEquivalent: "")
+        micRoot.submenu = NSMenu()
+        micRoot.tag = MenuTag.microphone.rawValue
+        menu.addItem(micRoot)
+
+        let sounds = NSMenuItem(
+            title: "Звуки записи", action: #selector(toggleSounds), keyEquivalent: "")
+        sounds.target = self
+        sounds.tag = MenuTag.sounds.rawValue
+        menu.addItem(sounds)
 
         let liveTextMenu = NSMenu()
         for target in AppSettings.LiveTextTarget.allCases {
@@ -168,7 +179,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private enum MenuTag: Int {
-        case cleanup = 1, history, login, accessibility, liveText
+        case cleanup = 1, history, login, accessibility, liveText, microphone, sounds
     }
 
     private let statsWindow = StatsWindowController()
@@ -176,6 +187,27 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.item(withTag: MenuTag.cleanup.rawValue)?.state =
             AppSettings.cleanupEnabled ? .on : .off
+        menu.item(withTag: MenuTag.sounds.rawValue)?.state =
+            AppSettings.soundsEnabled ? .on : .off
+
+        if let micMenu = menu.item(withTag: MenuTag.microphone.rawValue)?.submenu {
+            micMenu.removeAllItems()
+            let system = NSMenuItem(
+                title: "Системный по умолчанию", action: #selector(selectMicrophone(_:)),
+                keyEquivalent: "")
+            system.target = self
+            system.state = AppSettings.inputDeviceUID == nil ? .on : .off
+            micMenu.addItem(system)
+            for device in AudioDevices.inputs() {
+                let i = NSMenuItem(
+                    title: device.name, action: #selector(selectMicrophone(_:)),
+                    keyEquivalent: "")
+                i.target = self
+                i.representedObject = device.uid
+                i.state = AppSettings.inputDeviceUID == device.uid ? .on : .off
+                micMenu.addItem(i)
+            }
+        }
         menu.item(withTag: MenuTag.login.rawValue)?.state =
             SMAppService.mainApp.status == .enabled ? .on : .off
         menu.item(withTag: MenuTag.accessibility.rawValue)?.isHidden =
@@ -223,6 +255,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func toggleCleanup() {
         AppSettings.cleanupEnabled.toggle()
+    }
+
+    @objc private func toggleSounds() {
+        AppSettings.soundsEnabled.toggle()
+    }
+
+    @objc private func selectMicrophone(_ sender: NSMenuItem) {
+        AppSettings.inputDeviceUID = sender.representedObject as? String
     }
 
     @objc private func openStats() {

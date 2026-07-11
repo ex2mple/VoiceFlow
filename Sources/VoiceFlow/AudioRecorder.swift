@@ -19,6 +19,16 @@ final class AudioRecorder {
         lock.unlock()
 
         let input = engine.inputNode
+        // Route to the user-chosen microphone (nil = system default).
+        if let uid = AppSettings.inputDeviceUID,
+           let device = AudioDevices.inputs().first(where: { $0.uid == uid }),
+           let audioUnit = input.audioUnit {
+            var deviceID = device.id
+            AudioUnitSetProperty(
+                audioUnit, kAudioOutputUnitProperty_CurrentDevice,
+                kAudioUnitScope_Global, 0,
+                &deviceID, UInt32(MemoryLayout<AudioDeviceID>.size))
+        }
         let inFormat = input.outputFormat(forBus: 0)
         guard inFormat.sampleRate > 0 else {
             throw NSError(domain: "VoiceFlow", code: 1, userInfo: [

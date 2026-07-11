@@ -48,6 +48,8 @@ final class DictationCoordinator {
     /// User dictionary, reloaded at the start of each recording.
     private var dictionaryWords: [String] = []
     private var whisperPrompt: String?
+    /// true when the session was started with the translate hotkey.
+    private var sessionIsTranslate = false
     /// Preview transcribes at most this much of the tail — keeps each pass
     /// fast even during very long dictations.
     private let previewWindowSeconds: Double = 25
@@ -96,13 +98,14 @@ final class DictationCoordinator {
 
     // MARK: - Hotkey
 
-    func hotkeyPressed() {
+    func hotkeyPressed(translate: Bool = false) {
         // Second press while a hands-free recording runs = «стоп».
         if state == .recording {
             finishRecording()
             return
         }
         guard state == .idle, whisper != nil else { return }
+        sessionIsTranslate = translate
         guard Permissions.microphoneGranted else {
             Permissions.requestMicrophone { [weak self] granted in
                 if !granted { self?.onNotice?("Нет доступа к микрофону") }
@@ -112,6 +115,7 @@ final class DictationCoordinator {
         do {
             try recorder.start()
             state = .recording
+            playSound("Tink")
             typedPreview = ""
             dictionaryWords = DictionaryFile.words()
             whisperPrompt = UserDictionary.whisperPrompt(dictionaryWords)
@@ -148,7 +152,14 @@ final class DictationCoordinator {
             return
         }
         state = .processing
-        process(samples)
+        process(AudioGain.normalized(samples))
+    }
+
+    private func playSound(_ name: String) {
+        guard AppSettings.soundsEnabled else { return }
+        let sound = NSSound(named: name)
+        sound?.volume = 0.35
+        sound?.play()
     }
 
     // MARK: - Live preview
@@ -187,7 +198,7 @@ final class DictationCoordinator {
             // queue — don't waste the final pass's turn on a stale preview.
             guard self.state == .recording else { return }
             let text = TranscriptSanitizer.clean(
-                whisper.transcribe(samples, prompt: self.whisperPrompt))
+                whisper.transcribe(AudioGain.normalized(samples), prompt: self.whisperPrompt))
             guard !text.isEmpty else { return }
             DispatchQueue.main.async {
                 guard self.state == .recording else { return }
@@ -216,9 +227,14 @@ final class DictationCoordinator {
             }
             Task { [weak self] in
                 guard let self else { return }
+                let translate = self.sessionIsTranslate
                 let cleanupEnabled = AppSettings.cleanupEnabled
                 let result: CleanupResult
-                if cleanupEnabled {
+                if translate {
+                    result = await TextTranslator(
+                        client: self.ollama, model: AppSettings.ollamaModel
+                    ).translate(transcript)
+                } else if cleanupEnabled {
                     result = await TextCleaner(
                         client: self.ollama, model: AppSettings.ollamaModel,
                         vocabulary: self.dictionaryWords
@@ -237,7 +253,10 @@ final class DictationCoordinator {
                         KeyTyper.retype(from: self.typedPreview, to: result.text)
                         self.typedPreview = ""
                     }
-                    if cleanupEnabled && !result.wasCleaned {
+                    self.playSound("Pop")
+                    if translate && !result.wasCleaned {
+                        self.onNotice?("Перевод не удался — вставлен оригинал")
+                    } else if !translate && cleanupEnabled && !result.wasCleaned {
                         self.onNotice?("Вставлено без ИИ-чистки")
                     }
                     self.state = .idle
