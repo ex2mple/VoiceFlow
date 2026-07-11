@@ -98,6 +98,20 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         hotkeyRoot.submenu = hotkeyMenu
         menu.addItem(hotkeyRoot)
 
+        let sensTitle = NSMenuItem(title: "Чувствительность волны", action: nil, keyEquivalent: "")
+        sensTitle.isEnabled = false
+        menu.addItem(sensTitle)
+        let sliderItem = NSMenuItem()
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 26))
+        let slider = NSSlider(
+            value: AppSettings.waveSensitivity, minValue: 0.4, maxValue: 2.5,
+            target: self, action: #selector(sensitivityChanged(_:)))
+        slider.isContinuous = true
+        slider.frame = NSRect(x: 20, y: 3, width: 180, height: 20)
+        container.addSubview(slider)
+        sliderItem.view = container
+        menu.addItem(sliderItem)
+
         let historyRoot = NSMenuItem(title: "История", action: nil, keyEquivalent: "")
         historyRoot.submenu = NSMenu()
         historyRoot.tag = MenuTag.history.rawValue
@@ -170,6 +184,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func toggleCleanup() {
         AppSettings.cleanupEnabled.toggle()
+    }
+
+    @objc private func sensitivityChanged(_ sender: NSSlider) {
+        AppSettings.waveSensitivity = sender.doubleValue
     }
 
     @objc private func selectHotkey(_ sender: NSMenuItem) {

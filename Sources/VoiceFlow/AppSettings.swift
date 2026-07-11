@@ -45,4 +45,10 @@ enum AppSettings {
         get { d.string(forKey: "ollamaModel") ?? "qwen3:4b-instruct" }
         set { d.set(newValue, forKey: "ollamaModel") }
     }
+
+    /// Multiplier for the HUD waveform (0.4 quiet room … 2.5 loud gain).
+    static var waveSensitivity: Double {
+        get { d.object(forKey: "waveSensitivity") as? Double ?? 1.0 }
+        set { d.set(newValue, forKey: "waveSensitivity") }
+    }
 }

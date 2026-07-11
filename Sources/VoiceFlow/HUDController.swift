@@ -101,8 +101,12 @@ final class WaveformView: NSView {
 
     func push(_ level: Float) {
         guard mode == .live else { return }
-        // Typical speech RMS is ~0.01–0.15; stretch it to fill the bar height.
-        let scaled = min(1, CGFloat(level) * 9)
+        // dB scale, not linear: speech RMS lives around 0.01–0.1, which is
+        // invisible on a linear meter. Map -55 dB (room noise) … -15 dB
+        // (loud speech) onto 0…1, then apply the user's sensitivity.
+        let db = 20 * log10(max(CGFloat(level), 0.00005))
+        let norm = min(1, max(0, (db + 55) / 40))
+        let scaled = min(1, norm * CGFloat(AppSettings.waveSensitivity))
         // Fast attack, slow release: peaks land instantly, silence drains softly.
         currentLevel = max(scaled, currentLevel)
     }
