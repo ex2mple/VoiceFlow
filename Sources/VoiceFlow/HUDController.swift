@@ -102,7 +102,11 @@ final class HUDController {
 
         guard let effect = panel.contentView else { return }
         effect.layer?.cornerRadius = hasTranscript ? 18 : Self.waveHeight / 2
-        wave.frame = NSRect(x: 18, y: 8, width: width - 36, height: Self.waveHeight - 16)
+        // The wave keeps its compact width even when the capsule widens for
+        // the transcript — only the window stretches, not the bars.
+        let waveWidth = Self.waveOnlyWidth - 36
+        wave.frame = NSRect(
+            x: (width - waveWidth) / 2, y: 8, width: waveWidth, height: Self.waveHeight - 16)
         transcriptLabel.frame = NSRect(
             x: 16, y: Self.waveHeight - 2, width: width - 32, height: Self.textHeight - 8)
         transcriptLabel.isHidden = !hasTranscript
