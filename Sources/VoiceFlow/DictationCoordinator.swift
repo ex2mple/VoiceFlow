@@ -58,11 +58,7 @@ final class DictationCoordinator {
 
     func bootstrap() {
         recorder.onLevel = { [weak self] level in self?.onAudioLevel?(level) }
-        if AppSettings.cleanupEnabled {
-            Task { [ollama] in
-                await TextCleaner(client: ollama, model: AppSettings.ollamaModel).warmUp()
-            }
-        }
+        setupAI()
         if ModelLocator.modelExists {
             loadModel()
         } else {
@@ -290,12 +286,77 @@ final class DictationCoordinator {
         }
     }
 
+    // MARK: - AI setup
+
+    /// nil когда всё готово; текст — что происходит (скачивание и т.п.).
+    private var aiSetupStatus: String?
+    private var aiPullRunning = false
+
+    /// First launch UX: if Ollama runs but the model isn't pulled yet,
+    /// download it ourselves — the user shouldn't need a terminal.
+    private func setupAI() {
+        Task { [weak self] in
+            guard let self else { return }
+            guard await self.ollama.isAvailable() else { return }
+            let model = AppSettings.ollamaModel
+            if await self.ollama.hasModel(model) {
+                if AppSettings.cleanupEnabled {
+                    await TextCleaner(client: self.ollama, model: model).warmUp()
+                }
+                return
+            }
+            guard !self.aiPullRunning else { return }
+            self.aiPullRunning = true
+            defer { self.aiPullRunning = false }
+            await MainActor.run {
+                self.aiSetupStatus = "Скачивается ИИ-модель…"
+                self.onNotice?("Скачиваю ИИ-модель (~2.5 ГБ)…")
+            }
+            var lastShown = -5
+            do {
+                try await self.ollama.pull(model: model) { progress in
+                    guard let pct = progress.percent, pct >= lastShown + 5 else { return }
+                    lastShown = pct
+                    DispatchQueue.main.async {
+                        self.aiSetupStatus = "Скачивается ИИ-модель: \(pct)%"
+                        self.onNotice?("ИИ-модель: \(pct)%")
+                    }
+                }
+                await MainActor.run {
+                    self.aiSetupStatus = nil
+                    self.onNotice?("ИИ-чистка готова ✓")
+                }
+                await TextCleaner(client: self.ollama, model: model).warmUp()
+            } catch {
+                await MainActor.run {
+                    self.aiSetupStatus = "ИИ-модель не скачалась"
+                    self.onNotice?("Не удалось скачать ИИ-модель")
+                }
+            }
+        }
+    }
+
     // MARK: - Status for the menu
 
-    func ollamaStatusLine() async -> String {
+    struct AIStatus {
+        let line: String
+        let ollamaMissing: Bool
+    }
+
+    func aiStatus() async -> AIStatus {
         guard await ollama.isAvailable() else {
-            return "Ollama не запущена — вставляется сырой текст"
+            return AIStatus(
+                line: "ИИ-чистка выключена: нет Ollama",
+                ollamaMissing: true)
         }
-        return "Ollama ✓ (\(AppSettings.ollamaModel))"
+        if let status = aiSetupStatus {
+            return AIStatus(line: status, ollamaMissing: false)
+        }
+        if await ollama.hasModel(AppSettings.ollamaModel) {
+            return AIStatus(line: "Ollama ✓ (\(AppSettings.ollamaModel))", ollamaMissing: false)
+        }
+        // Ollama появилась после запуска (например, только что установили).
+        setupAI()
+        return AIStatus(line: "Готовлю ИИ-модель…", ollamaMissing: false)
     }
 }

@@ -36,12 +36,7 @@ Recognition: OpenAI **Whisper** (`large-v3-turbo`, quantized) via [whisper.cpp](
    ```
 3. Launch it. Grant the two permissions it asks for: **Microphone** and **Accessibility** (needed for the global hotkey and text insertion).
 4. The Whisper model downloads automatically on first run (progress shows in the menu bar).
-5. *(Optional but recommended)* Enable AI cleanup:
-   ```bash
-   brew install ollama
-   brew services start ollama
-   ollama pull qwen3:4b-instruct
-   ```
+5. *(Optional but recommended)* Enable AI cleanup & translation: install [Ollama](https://ollama.com/download/mac) and launch it — that's the only extra step. VoiceFlow detects it and **downloads the LLM (~2.5 GB) by itself**, with progress in the menu bar. (Terminal folks can `brew install ollama && brew services start ollama` instead. If you skip this entirely, dictation still works — you just get Whisper's raw transcript.)
 6. Hold **right ⌥** and talk. That's it.
 
 ## Build from source

@@ -9,6 +9,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let statusLine = NSMenuItem(title: "Запуск…", action: nil, keyEquivalent: "")
     private let sensValueLabel = NSTextField(labelWithString: "")
     private let ollamaLine = NSMenuItem(title: "Ollama: проверка…", action: nil, keyEquivalent: "")
+    private let ollamaInstallItem = NSMenuItem(
+        title: "Включить ИИ-чистку: скачать Ollama…", action: nil, keyEquivalent: "")
     private var noticeResetTimer: Timer?
 
     init(coordinator: DictationCoordinator) {
@@ -81,6 +83,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         ollamaLine.isEnabled = false
         menu.addItem(statusLine)
         menu.addItem(ollamaLine)
+        ollamaInstallItem.action = #selector(openOllamaDownload)
+        ollamaInstallItem.target = self
+        ollamaInstallItem.isHidden = true
+        menu.addItem(ollamaInstallItem)
         menu.addItem(.separator())
 
         let cleanup = NSMenuItem(
@@ -246,8 +252,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         Task { [weak self] in
             guard let self else { return }
-            let line = await self.coordinator.ollamaStatusLine()
-            await MainActor.run { self.ollamaLine.title = line }
+            let status = await self.coordinator.aiStatus()
+            await MainActor.run {
+                self.ollamaLine.title = status.line
+                self.ollamaInstallItem.isHidden = !status.ollamaMissing
+            }
         }
     }
 
@@ -255,6 +264,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func toggleCleanup() {
         AppSettings.cleanupEnabled.toggle()
+    }
+
+    @objc private func openOllamaDownload() {
+        NSWorkspace.shared.open(URL(string: "https://ollama.com/download/mac")!)
     }
 
     @objc private func toggleSounds() {
