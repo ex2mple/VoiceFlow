@@ -26,8 +26,9 @@ public final class WhisperEngine {
         whisper_free(ctx)
     }
 
-    /// samples: mono float32 PCM at 16 kHz.
-    public func transcribe(_ samples: [Float]) -> String {
+    /// samples: mono float32 PCM at 16 kHz. `prompt` (user dictionary) biases
+    /// recognition toward the vocabulary it contains.
+    public func transcribe(_ samples: [Float], prompt: String? = nil) -> String {
         var params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY)
         params.n_threads = Int32(min(8, ProcessInfo.processInfo.activeProcessorCount))
         params.print_progress = false
@@ -40,8 +41,15 @@ public final class WhisperEngine {
 
         let status = "auto".withCString { lang -> Int32 in
             params.language = lang
-            return samples.withUnsafeBufferPointer { buf in
-                whisper_full(ctx, params, buf.baseAddress, Int32(buf.count))
+            func run() -> Int32 {
+                samples.withUnsafeBufferPointer { buf in
+                    whisper_full(ctx, params, buf.baseAddress, Int32(buf.count))
+                }
+            }
+            guard let prompt else { return run() }
+            return prompt.withCString { p -> Int32 in
+                params.initial_prompt = p
+                return run()
             }
         }
         guard status == 0 else { return "" }

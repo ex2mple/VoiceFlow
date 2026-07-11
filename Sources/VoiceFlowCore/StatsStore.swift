@@ -22,6 +22,8 @@ public final class StatsStore {
     private let keySeconds = "stats.total.seconds"
     private let keyTodayDate = "stats.today.date"
     private let keyTodayWords = "stats.today.words"
+    private let keyDays = "stats.days"
+    private let keptDays = 90
 
     public init(defaults: UserDefaults = .standard) {
         self.d = defaults
@@ -40,6 +42,27 @@ public final class StatsStore {
         } else {
             d.set(today, forKey: keyTodayDate)
             d.set(words, forKey: keyTodayWords)
+        }
+
+        var days = (d.dictionary(forKey: keyDays) as? [String: Int]) ?? [:]
+        days[today, default: 0] += words
+        if days.count > keptDays {
+            // Keys are zero-padded, so lexicographic order == chronological.
+            for stale in days.keys.sorted().dropLast(keptDays) {
+                days.removeValue(forKey: stale)
+            }
+        }
+        d.set(days, forKey: keyDays)
+    }
+
+    /// Words per day for the last `count` days, oldest first, zeros included.
+    public func recentDays(_ count: Int, now: Date = Date()) -> [(day: Date, words: Int)] {
+        let days = (d.dictionary(forKey: keyDays) as? [String: Int]) ?? [:]
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: now)
+        return (0..<count).reversed().compactMap { back in
+            guard let day = calendar.date(byAdding: .day, value: -back, to: today) else { return nil }
+            return (day, days[Self.dayString(day)] ?? 0)
         }
     }
 
@@ -61,7 +84,7 @@ public final class StatsStore {
 
     static func dayString(_ date: Date) -> String {
         let c = Calendar.current.dateComponents([.year, .month, .day], from: date)
-        return "\(c.year!)-\(c.month!)-\(c.day!)"
+        return String(format: "%04d-%02d-%02d", c.year!, c.month!, c.day!)
     }
 
     /// Русская форма: 1 слово, 2 слова, 5 слов.

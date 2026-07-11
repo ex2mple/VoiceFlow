@@ -51,8 +51,9 @@ public final class TextCleaner {
          + "пор иногда падает, и я хочу, чтобы мы сначала её починили, а потом уже релизились."),
     ]
 
-    static func messages(for transcript: String) -> [[String: String]] {
-        var msgs: [[String: String]] = [["role": "system", "content": systemPrompt]]
+    public static func messages(for transcript: String, vocabulary: [String] = []) -> [[String: String]] {
+        let system = systemPrompt + (UserDictionary.cleanupHint(vocabulary) ?? "")
+        var msgs: [[String: String]] = [["role": "system", "content": system]]
         for shot in fewShot {
             msgs.append(["role": "user", "content": "<дикт>\(shot.user)</дикт>"])
             msgs.append(["role": "assistant", "content": shot.assistant])
@@ -63,10 +64,12 @@ public final class TextCleaner {
 
     private let client: OllamaClient
     private let model: String
+    private let vocabulary: [String]
 
-    public init(client: OllamaClient, model: String) {
+    public init(client: OllamaClient, model: String, vocabulary: [String] = []) {
         self.client = client
         self.model = model
+        self.vocabulary = vocabulary
     }
 
     /// Fire-and-forget: loads the model into Ollama's memory so the first
@@ -77,7 +80,7 @@ public final class TextCleaner {
 
     public func clean(_ transcript: String) async -> CleanupResult {
         guard let raw = try? await client.chat(
-            model: model, messages: Self.messages(for: transcript)
+            model: model, messages: Self.messages(for: transcript, vocabulary: vocabulary)
         ) else {
             return CleanupResult(text: transcript, wasCleaned: false)
         }

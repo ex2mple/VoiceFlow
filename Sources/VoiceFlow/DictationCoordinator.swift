@@ -45,6 +45,9 @@ final class DictationCoordinator {
     private var autoStopTimer: Timer?
     /// Safety net for hands-free mode — stop after 3 minutes.
     private let maxRecordingSeconds: TimeInterval = 180
+    /// User dictionary, reloaded at the start of each recording.
+    private var dictionaryWords: [String] = []
+    private var whisperPrompt: String?
     /// Preview transcribes at most this much of the tail — keeps each pass
     /// fast even during very long dictations.
     private let previewWindowSeconds: Double = 25
@@ -110,6 +113,8 @@ final class DictationCoordinator {
             try recorder.start()
             state = .recording
             typedPreview = ""
+            dictionaryWords = DictionaryFile.words()
+            whisperPrompt = UserDictionary.whisperPrompt(dictionaryWords)
             pressedAt = Date()
             startPreviewLoop()
             autoStopTimer = Timer.scheduledTimer(
@@ -181,7 +186,8 @@ final class DictationCoordinator {
             // The user may have released the key while this job sat in the
             // queue — don't waste the final pass's turn on a stale preview.
             guard self.state == .recording else { return }
-            let text = TranscriptSanitizer.clean(whisper.transcribe(samples))
+            let text = TranscriptSanitizer.clean(
+                whisper.transcribe(samples, prompt: self.whisperPrompt))
             guard !text.isEmpty else { return }
             DispatchQueue.main.async {
                 guard self.state == .recording else { return }
@@ -202,7 +208,7 @@ final class DictationCoordinator {
         let recordedSeconds = Double(samples.count) / AudioRecorder.sampleRate
         whisperQueue.async { [weak self] in
             guard let self, let whisper = self.whisper else { return }
-            let raw = whisper.transcribe(samples)
+            let raw = whisper.transcribe(samples, prompt: self.whisperPrompt)
             let transcript = TranscriptSanitizer.clean(raw)
             guard !transcript.isEmpty else {
                 DispatchQueue.main.async { self.state = .idle }
@@ -214,7 +220,8 @@ final class DictationCoordinator {
                 let result: CleanupResult
                 if cleanupEnabled {
                     result = await TextCleaner(
-                        client: self.ollama, model: AppSettings.ollamaModel
+                        client: self.ollama, model: AppSettings.ollamaModel,
+                        vocabulary: self.dictionaryWords
                     ).clean(transcript)
                 } else {
                     result = CleanupResult(text: transcript, wasCleaned: false)

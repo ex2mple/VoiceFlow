@@ -137,10 +137,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         historyRoot.tag = MenuTag.history.rawValue
         menu.addItem(historyRoot)
 
-        let statsRoot = NSMenuItem(title: "Статистика", action: nil, keyEquivalent: "")
-        statsRoot.submenu = NSMenu()
-        statsRoot.tag = MenuTag.stats.rawValue
-        menu.addItem(statsRoot)
+        let statsItem = NSMenuItem(
+            title: "Статистика…", action: #selector(openStats), keyEquivalent: "")
+        statsItem.target = self
+        menu.addItem(statsItem)
+
+        let dictItem = NSMenuItem(
+            title: "Словарь…", action: #selector(openDictionary), keyEquivalent: "")
+        dictItem.target = self
+        menu.addItem(dictItem)
         menu.addItem(.separator())
 
         let login = NSMenuItem(
@@ -163,8 +168,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private enum MenuTag: Int {
-        case cleanup = 1, history, login, accessibility, liveText, stats
+        case cleanup = 1, history, login, accessibility, liveText
     }
+
+    private let statsWindow = StatsWindowController()
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.item(withTag: MenuTag.cleanup.rawValue)?.state =
@@ -205,22 +212,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             }
         }
 
-        if let statsMenu = menu.item(withTag: MenuTag.stats.rawValue)?.submenu {
-            statsMenu.removeAllItems()
-            let s = coordinator.stats.snapshot()
-            let lines = [
-                "Сегодня: \(s.wordsToday) \(StatsStore.wordsForm(s.wordsToday))",
-                "Всего: \(s.wordsTotal) \(StatsStore.wordsForm(s.wordsTotal)) · диктовок: \(s.dictationsTotal)",
-                "Наговорено: \(Int((s.secondsRecorded / 60).rounded())) мин",
-                "Сэкономлено у клавиатуры: ≈\(s.savedMinutes) мин",
-            ]
-            for line in lines {
-                let i = NSMenuItem(title: line, action: nil, keyEquivalent: "")
-                i.isEnabled = false
-                statsMenu.addItem(i)
-            }
-        }
-
         Task { [weak self] in
             guard let self else { return }
             let line = await self.coordinator.ollamaStatusLine()
@@ -232,6 +223,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func toggleCleanup() {
         AppSettings.cleanupEnabled.toggle()
+    }
+
+    @objc private func openStats() {
+        statsWindow.show(stats: coordinator.stats)
+    }
+
+    @objc private func openDictionary() {
+        DictionaryFile.openInEditor()
     }
 
     @objc private func selectLiveText(_ sender: NSMenuItem) {
