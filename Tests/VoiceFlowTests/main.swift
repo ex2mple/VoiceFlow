@@ -1,0 +1,7 @@
+runSanitizerTests()
+runAudioGateTests()
+runCleanupValidatorTests()
+runOllamaTests()
+runHistoryTests()
+runE2ETestsIfRequested()
+T.finish()
