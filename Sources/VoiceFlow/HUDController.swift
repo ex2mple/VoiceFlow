@@ -45,7 +45,12 @@ final class HUDController {
     /// Live partial transcript while the user is still speaking.
     func showTranscript(_ text: String) {
         guard wave.mode != .off, !text.isEmpty else { return }
-        transcriptLabel.stringValue = text
+        // ~5 lines' worth; the fresh tail matters more than the beginning.
+        var shown = text
+        if shown.count > 260 {
+            shown = "…" + shown.suffix(260)
+        }
+        transcriptLabel.stringValue = shown
         if !hasTranscript {
             hasTranscript = true
             layout()
@@ -79,8 +84,10 @@ final class HUDController {
         transcriptLabel.textColor = .labelColor
         transcriptLabel.alignment = .center
         transcriptLabel.maximumNumberOfLines = 5
-        // The tail of the transcript is the fresh part — clip the beginning.
-        transcriptLabel.lineBreakMode = .byTruncatingHead
+        // byTruncatingHead disables wrapping entirely — wrap by words and
+        // trim the *string* from the head instead (see showTranscript).
+        transcriptLabel.lineBreakMode = .byWordWrapping
+        transcriptLabel.cell?.truncatesLastVisibleLine = true
 
         effect.addSubview(transcriptLabel)
         effect.addSubview(wave)
