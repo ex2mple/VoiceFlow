@@ -24,12 +24,14 @@ final class AudioRecorder {
            let device = AudioDevices.inputs().first(where: { $0.uid == uid }),
            let audioUnit = input.audioUnit {
             var deviceID = device.id
-            AudioUnitSetProperty(
+            let status = AudioUnitSetProperty(
                 audioUnit, kAudioOutputUnitProperty_CurrentDevice,
                 kAudioUnitScope_Global, 0,
                 &deviceID, UInt32(MemoryLayout<AudioDeviceID>.size))
+            DebugLog.log("recorder: set device \(device.name) (\(device.id)) status=\(status)")
         }
         let inFormat = input.outputFormat(forBus: 0)
+        DebugLog.log("recorder: start, format=\(inFormat.sampleRate)Hz ch=\(inFormat.channelCount)")
         guard inFormat.sampleRate > 0 else {
             throw NSError(domain: "VoiceFlow", code: 1, userInfo: [
                 NSLocalizedDescriptionKey: "Микрофон недоступен"])
@@ -42,8 +44,14 @@ final class AudioRecorder {
                 NSLocalizedDescriptionKey: "Не удалось создать конвертер аудио"])
         }
 
+        var rawLogged = 0
         input.installTap(onBus: 0, bufferSize: 4096, format: inFormat) { [weak self] buffer, _ in
             guard let self else { return }
+            if DebugLog.enabled, rawLogged < 3, let raw = buffer.floatChannelData {
+                rawLogged += 1
+                let chunk = Array(UnsafeBufferPointer(start: raw[0], count: Int(buffer.frameLength)))
+                DebugLog.log("tap: raw buffer \(buffer.frameLength) frames, rms=\(AudioGate.rms(chunk))")
+            }
             let ratio = Self.sampleRate / inFormat.sampleRate
             let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 16
             guard let out = AVAudioPCMBuffer(pcmFormat: outFormat, frameCapacity: capacity) else { return }
@@ -77,6 +85,9 @@ final class AudioRecorder {
         engine.stop()
         lock.lock()
         defer { lock.unlock() }
+        DebugLog.log("recorder: stop, samples=\(samples.count) "
+            + "(\(String(format: "%.2f", Double(samples.count) / Self.sampleRate))s) "
+            + "rms=\(AudioGate.rms(samples))")
         return samples
     }
 

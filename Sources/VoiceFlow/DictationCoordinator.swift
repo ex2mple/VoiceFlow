@@ -144,9 +144,11 @@ final class DictationCoordinator {
         stopPreviewLoop()
         let samples = recorder.stop()
         guard AudioGate.shouldTranscribe(samples: samples, sampleRate: AudioRecorder.sampleRate) else {
+            DebugLog.log("gate: REJECTED (silence or too short)")
             state = .idle
             return
         }
+        DebugLog.log("gate: passed")
         state = .processing
         startProcessingWatchdog()
         process(AudioGain.normalized(samples))
@@ -242,6 +244,8 @@ final class DictationCoordinator {
             guard let self, let whisper = self.whisper else { return }
             let raw = whisper.transcribe(samples, prompt: self.whisperPrompt)
             let transcript = TranscriptSanitizer.clean(raw)
+            DebugLog.log("whisper: raw=\(raw.count) chars, clean=\(transcript.count): "
+                + "«\(String(transcript.prefix(60)))»")
             guard !transcript.isEmpty else {
                 DispatchQueue.main.async { self.state = .idle }
                 return
