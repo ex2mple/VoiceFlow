@@ -8,7 +8,8 @@ final class HUDController {
         case processing
     }
 
-    private static let width: CGFloat = 340
+    private static let waveOnlyWidth: CGFloat = 230
+    private static let transcriptWidth: CGFloat = 340
     private static let waveHeight: CGFloat = 44
     private static let textHeight: CGFloat = 46
 
@@ -55,7 +56,7 @@ final class HUDController {
 
     private func makePanel() -> NSPanel {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: Self.width, height: Self.waveHeight),
+            contentRect: NSRect(x: 0, y: 0, width: Self.waveOnlyWidth, height: Self.waveHeight),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered, defer: false)
         panel.level = .statusBar
@@ -91,18 +92,19 @@ final class HUDController {
     /// transcript so the wave stays put.
     private func layout() {
         guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+        let width = hasTranscript ? Self.transcriptWidth : Self.waveOnlyWidth
         let height = hasTranscript ? Self.waveHeight + Self.textHeight : Self.waveHeight
         let frame = screen.visibleFrame
-        let origin = NSPoint(x: frame.midX - Self.width / 2, y: frame.minY + 28)
+        let origin = NSPoint(x: frame.midX - width / 2, y: frame.minY + 28)
         panel.setFrame(
-            NSRect(origin: origin, size: NSSize(width: Self.width, height: height)),
+            NSRect(origin: origin, size: NSSize(width: width, height: height)),
             display: true)
 
         guard let effect = panel.contentView else { return }
         effect.layer?.cornerRadius = hasTranscript ? 18 : Self.waveHeight / 2
-        wave.frame = NSRect(x: 18, y: 8, width: Self.width - 36, height: Self.waveHeight - 16)
+        wave.frame = NSRect(x: 18, y: 8, width: width - 36, height: Self.waveHeight - 16)
         transcriptLabel.frame = NSRect(
-            x: 16, y: Self.waveHeight - 2, width: Self.width - 32, height: Self.textHeight - 8)
+            x: 16, y: Self.waveHeight - 2, width: width - 32, height: Self.textHeight - 8)
         transcriptLabel.isHidden = !hasTranscript
     }
 }
@@ -129,17 +131,16 @@ final class WaveView: NSView {
         }
     }
 
-    static let barCount = 32
+    static let barCount = 22
     private var heights: [CGFloat] = Array(repeating: 0, count: barCount)
     private var currentLevel: CGFloat = 0
     private var phase: CGFloat = 0
     private var timer: Timer?
 
-    /// Flattened bell: 1.0 in the middle, ~0.5 at the edges — the edge bars
-    /// work too instead of standing still.
+    /// Bell envelope как в первой версии: 1.0 в центре, спад к краям.
     private static let envelope: [CGFloat] = (0..<barCount).map { i in
-        let x = (CGFloat(i) - CGFloat(barCount - 1) / 2) / (CGFloat(barCount) / 2.4)
-        return 0.5 + 0.5 * exp(-x * x)
+        let x = (CGFloat(i) - CGFloat(barCount - 1) / 2) / (CGFloat(barCount) / 3.2)
+        return 0.15 + 0.85 * exp(-x * x)
     }
 
     func push(_ level: Float) {
@@ -168,7 +169,7 @@ final class WaveView: NSView {
         case .live:
             for i in 0..<Self.barCount {
                 // Pure random jitter per bar — no phase term, no timeline feel.
-                let jitter = CGFloat.random(in: 0.45...1.0)
+                let jitter = CGFloat.random(in: 0.5...1.0)
                 let target = currentLevel * Self.envelope[i] * jitter
                 heights[i] += (target - heights[i]) * 0.45
             }
@@ -183,7 +184,7 @@ final class WaveView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard mode != .off else { return }
-        let barWidth: CGFloat = 3.5
+        let barWidth: CGFloat = 3
         let gap = (bounds.width - CGFloat(Self.barCount) * barWidth) / CGFloat(Self.barCount - 1)
         let midY = bounds.midY
 
@@ -203,7 +204,7 @@ final class WaveView: NSView {
                 roundedRect: NSRect(x: x, y: midY - height / 2, width: barWidth, height: height),
                 xRadius: barWidth / 2, yRadius: barWidth / 2)
             let alpha: CGFloat = mode == .live ? 0.95 : 0.55
-            NSColor.controlAccentColor.withAlphaComponent(alpha).setFill()
+            NSColor.labelColor.withAlphaComponent(alpha).setFill()
             bar.fill()
         }
     }
