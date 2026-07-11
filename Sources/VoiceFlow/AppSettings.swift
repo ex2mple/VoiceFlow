@@ -46,6 +46,24 @@ enum AppSettings {
         set { d.set(newValue, forKey: "ollamaModel") }
     }
 
+    /// Where the live partial transcript goes while dictating.
+    enum LiveTextTarget: String, CaseIterable {
+        case hud      // в капсуле над волной
+        case cursor   // печатается сразу в активное поле
+
+        var title: String {
+            switch self {
+            case .hud: return "В капсуле"
+            case .cursor: return "Сразу в поле ввода"
+            }
+        }
+    }
+
+    static var liveTextTarget: LiveTextTarget {
+        get { LiveTextTarget(rawValue: d.string(forKey: "liveTextTarget") ?? "") ?? .hud }
+        set { d.set(newValue.rawValue, forKey: "liveTextTarget") }
+    }
+
     /// Multiplier for the HUD waveform (0.4 quiet room … 2.5 loud gain).
     static var waveSensitivity: Double {
         get { d.object(forKey: "waveSensitivity") as? Double ?? 1.0 }

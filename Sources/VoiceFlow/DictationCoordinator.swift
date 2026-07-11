@@ -36,6 +36,8 @@ final class DictationCoordinator {
     private let whisperQueue = DispatchQueue(label: "voiceflow.whisper")
     private var previewTimer: Timer?
     private var previewBusy = false
+    /// What we've already typed into the focused app in "cursor" live mode.
+    private var typedPreview = ""
     /// Preview transcribes at most this much of the tail — keeps each pass
     /// fast even during very long dictations.
     private let previewWindowSeconds: Double = 25
@@ -95,6 +97,7 @@ final class DictationCoordinator {
         do {
             try recorder.start()
             state = .recording
+            typedPreview = ""
             startPreviewLoop()
         } catch {
             onNotice?(error.localizedDescription)
@@ -128,9 +131,16 @@ final class DictationCoordinator {
 
     private func previewTick() {
         guard state == .recording, !previewBusy, whisper != nil else { return }
+        let target = AppSettings.liveTextTarget
         var samples = recorder.snapshot()
-        let window = Int(previewWindowSeconds * AudioRecorder.sampleRate)
-        if samples.count > window { samples = Array(samples.suffix(window)) }
+        if target == .hud {
+            // The capsule only shows the tail anyway; keep each pass fast.
+            let window = Int(previewWindowSeconds * AudioRecorder.sampleRate)
+            if samples.count > window { samples = Array(samples.suffix(window)) }
+        }
+        // In cursor mode the whole buffer is transcribed every time: the
+        // typed text is diffed against the previous pass, so the prefix
+        // must stay stable.
         guard AudioGate.shouldTranscribe(samples: samples, sampleRate: AudioRecorder.sampleRate)
         else { return }
 
@@ -145,7 +155,13 @@ final class DictationCoordinator {
             guard !text.isEmpty else { return }
             DispatchQueue.main.async {
                 guard self.state == .recording else { return }
-                self.onPreview?(text)
+                switch target {
+                case .hud:
+                    self.onPreview?(text)
+                case .cursor:
+                    KeyTyper.retype(from: self.typedPreview, to: text)
+                    self.typedPreview = text
+                }
             }
         }
     }
@@ -174,7 +190,14 @@ final class DictationCoordinator {
                 }
                 await MainActor.run {
                     self.history.add(result.text)
-                    TextInserter.insert(result.text)
+                    if self.typedPreview.isEmpty {
+                        TextInserter.insert(result.text)
+                    } else {
+                        // The live preview is already in the field — morph it
+                        // into the final cleaned text instead of pasting a copy.
+                        KeyTyper.retype(from: self.typedPreview, to: result.text)
+                        self.typedPreview = ""
+                    }
                     if cleanupEnabled && !result.wasCleaned {
                         self.onNotice?("Вставлено без ИИ-чистки")
                     }

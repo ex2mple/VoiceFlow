@@ -107,10 +107,12 @@ final class HUDController {
     }
 }
 
-/// Smooth symmetric wave (no timeline): a filled curve that swells with the
-/// CURRENT voice level. Two data sources:
-/// - .live: control points eased toward level × bell envelope
-/// - .synthetic: a dimmed travelling wave (processing indicator)
+/// Bar-style level meter (no timeline): all bars dance with the CURRENT
+/// microphone level. A flattened envelope keeps even the edge bars alive,
+/// per-bar random jitter makes the picture organic. Tinted with the user's
+/// macOS accent color.
+/// - .live: bars driven by the mic
+/// - .synthetic: dimmed travelling wave (processing indicator)
 final class WaveView: NSView {
     enum Mode {
         case off
@@ -120,18 +122,25 @@ final class WaveView: NSView {
 
     var mode: Mode = .off {
         didSet {
-            points = Array(repeating: 0, count: Self.pointCount)
+            heights = Array(repeating: 0, count: Self.barCount)
             currentLevel = 0
             syncTimer()
             needsDisplay = true
         }
     }
 
-    static let pointCount = 12
-    private var points: [CGFloat] = Array(repeating: 0, count: pointCount)
+    static let barCount = 32
+    private var heights: [CGFloat] = Array(repeating: 0, count: barCount)
     private var currentLevel: CGFloat = 0
     private var phase: CGFloat = 0
     private var timer: Timer?
+
+    /// Flattened bell: 1.0 in the middle, ~0.5 at the edges — the edge bars
+    /// work too instead of standing still.
+    private static let envelope: [CGFloat] = (0..<barCount).map { i in
+        let x = (CGFloat(i) - CGFloat(barCount - 1) / 2) / (CGFloat(barCount) / 2.4)
+        return 0.5 + 0.5 * exp(-x * x)
+    }
 
     func push(_ level: Float) {
         guard mode == .live else { return }
@@ -141,6 +150,7 @@ final class WaveView: NSView {
         let db = 20 * log10(max(CGFloat(level), 0.00005))
         let norm = min(1, max(0, (db + 55) / 40))
         let scaled = min(1, norm * CGFloat(AppSettings.waveSensitivity))
+        // Fast attack, slow release: peaks land instantly, silence drains softly.
         currentLevel = max(scaled, currentLevel)
     }
 
@@ -154,23 +164,17 @@ final class WaveView: NSView {
     }
 
     private func tick() {
-        phase += 0.4
         switch mode {
         case .live:
-            for i in 0..<Self.pointCount {
-                let x = (CGFloat(i) - CGFloat(Self.pointCount - 1) / 2) / (CGFloat(Self.pointCount) / 2.6)
-                let envelope = exp(-x * x)
-                let ripple = 0.5 + 0.5 * sin(phase + CGFloat(i) * 1.3)
-                let target = currentLevel * envelope * ripple
-                points[i] += (target - points[i]) * 0.35
+            for i in 0..<Self.barCount {
+                // Pure random jitter per bar — no phase term, no timeline feel.
+                let jitter = CGFloat.random(in: 0.45...1.0)
+                let target = currentLevel * Self.envelope[i] * jitter
+                heights[i] += (target - heights[i]) * 0.45
             }
-            currentLevel *= 0.9
+            currentLevel *= 0.88
         case .synthetic:
-            for i in 0..<Self.pointCount {
-                let x = (CGFloat(i) - CGFloat(Self.pointCount - 1) / 2) / (CGFloat(Self.pointCount) / 2.6)
-                let envelope = exp(-x * x)
-                points[i] = (0.35 + 0.3 * sin(phase * 0.6 + CGFloat(i) * 0.9)) * envelope
-            }
+            phase += 0.25
         case .off:
             return
         }
@@ -179,27 +183,28 @@ final class WaveView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard mode != .off else { return }
-        let mid = bounds.midY
-        let step = bounds.width / CGFloat(Self.pointCount - 1)
-        let alpha: CGFloat = mode == .live ? 0.85 : 0.5
+        let barWidth: CGFloat = 3.5
+        let gap = (bounds.width - CGFloat(Self.barCount) * barWidth) / CGFloat(Self.barCount - 1)
+        let midY = bounds.midY
 
-        // Filled symmetric lobe above and below the midline.
-        for direction: CGFloat in [1, -1] {
-            let path = NSBezierPath()
-            path.move(to: NSPoint(x: 0, y: mid))
-            for i in 0..<(Self.pointCount - 1) {
-                let y1 = mid - direction * max(1.5, points[i] * bounds.height * 0.48)
-                let y2 = mid - direction * max(1.5, points[i + 1] * bounds.height * 0.48)
-                let midX = CGFloat(i) * step + step / 2
-                path.curve(
-                    to: NSPoint(x: CGFloat(i + 1) * step, y: (y1 + y2) / 2),
-                    controlPoint1: NSPoint(x: midX, y: y1),
-                    controlPoint2: NSPoint(x: midX, y: (y1 + y2) / 2))
+        for i in 0..<Self.barCount {
+            let value: CGFloat
+            switch mode {
+            case .live:
+                value = heights[i]
+            case .synthetic:
+                value = (0.35 + 0.3 * sin(phase + CGFloat(i) * 0.45)) * Self.envelope[i]
+            case .off:
+                value = 0
             }
-            path.line(to: NSPoint(x: bounds.width, y: mid))
-            path.close()
-            NSColor.labelColor.withAlphaComponent(alpha).setFill()
-            path.fill()
+            let height = max(3, value * bounds.height)
+            let x = CGFloat(i) * (barWidth + gap)
+            let bar = NSBezierPath(
+                roundedRect: NSRect(x: x, y: midY - height / 2, width: barWidth, height: height),
+                xRadius: barWidth / 2, yRadius: barWidth / 2)
+            let alpha: CGFloat = mode == .live ? 0.95 : 0.55
+            NSColor.controlAccentColor.withAlphaComponent(alpha).setFill()
+            bar.fill()
         }
     }
 }

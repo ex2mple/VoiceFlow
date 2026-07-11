@@ -99,6 +99,19 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         hotkeyRoot.submenu = hotkeyMenu
         menu.addItem(hotkeyRoot)
 
+        let liveTextMenu = NSMenu()
+        for target in AppSettings.LiveTextTarget.allCases {
+            let i = NSMenuItem(title: target.title, action: #selector(selectLiveText(_:)),
+                               keyEquivalent: "")
+            i.target = self
+            i.representedObject = target.rawValue
+            liveTextMenu.addItem(i)
+        }
+        let liveTextRoot = NSMenuItem(title: "Живой текст", action: nil, keyEquivalent: "")
+        liveTextRoot.submenu = liveTextMenu
+        liveTextRoot.tag = MenuTag.liveText.rawValue
+        menu.addItem(liveTextRoot)
+
         let sensTitle = NSMenuItem(title: "Чувствительность волны", action: nil, keyEquivalent: "")
         sensTitle.isEnabled = false
         menu.addItem(sensTitle)
@@ -144,7 +157,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private enum MenuTag: Int {
-        case cleanup = 1, history, login, accessibility
+        case cleanup = 1, history, login, accessibility, liveText
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -154,6 +167,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             SMAppService.mainApp.status == .enabled ? .on : .off
         menu.item(withTag: MenuTag.accessibility.rawValue)?.isHidden =
             Permissions.accessibilityGranted
+
+        if let liveTextMenu = menu.item(withTag: MenuTag.liveText.rawValue)?.submenu {
+            for i in liveTextMenu.items {
+                i.state = (i.representedObject as? String)
+                    == AppSettings.liveTextTarget.rawValue ? .on : .off
+            }
+        }
 
         if let hotkeyMenu = menu.items.first(where: { $0.submenu != nil && $0.tag == 0 && $0.title == "Клавиша диктовки" })?.submenu {
             for i in hotkeyMenu.items {
@@ -190,6 +210,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func toggleCleanup() {
         AppSettings.cleanupEnabled.toggle()
+    }
+
+    @objc private func selectLiveText(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let target = AppSettings.LiveTextTarget(rawValue: raw) else { return }
+        AppSettings.liveTextTarget = target
     }
 
     @objc private func sensitivityChanged(_ sender: NSSlider) {
