@@ -19,6 +19,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         coordinator.onAudioLevel = { [weak self] level in
             self?.hud.pushLevel(level)
         }
+        coordinator.onPreview = { [weak self] text in
+            self?.hud.showTranscript(text)
+        }
 
         if !Permissions.accessibilityGranted {
             Permissions.promptAccessibility()

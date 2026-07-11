@@ -69,4 +69,12 @@ final class AudioRecorder {
         defer { lock.unlock() }
         return samples
     }
+
+    /// Copy of everything captured so far — feeds the live preview while
+    /// recording continues.
+    func snapshot() -> [Float] {
+        lock.lock()
+        defer { lock.unlock() }
+        return samples
+    }
 }

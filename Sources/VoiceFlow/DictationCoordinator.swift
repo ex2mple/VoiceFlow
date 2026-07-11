@@ -21,6 +21,8 @@ final class DictationCoordinator {
     var onNotice: ((String) -> Void)?
     /// Live microphone RMS while recording (main queue) — feeds the HUD waveform.
     var onAudioLevel: ((Float) -> Void)?
+    /// Partial transcript while the user is still speaking (main queue).
+    var onPreview: ((String) -> Void)?
 
     func addStateObserver(_ observer: @escaping (State) -> Void) {
         stateObservers.append(observer)
@@ -32,6 +34,11 @@ final class DictationCoordinator {
     private let ollama = OllamaClient()
     private var whisper: WhisperEngine?
     private let whisperQueue = DispatchQueue(label: "voiceflow.whisper")
+    private var previewTimer: Timer?
+    private var previewBusy = false
+    /// Preview transcribes at most this much of the tail — keeps each pass
+    /// fast even during very long dictations.
+    private let previewWindowSeconds: Double = 25
 
     // MARK: - Startup
 
@@ -88,6 +95,7 @@ final class DictationCoordinator {
         do {
             try recorder.start()
             state = .recording
+            startPreviewLoop()
         } catch {
             onNotice?(error.localizedDescription)
         }
@@ -95,6 +103,7 @@ final class DictationCoordinator {
 
     func hotkeyReleased() {
         guard state == .recording else { return }
+        stopPreviewLoop()
         let samples = recorder.stop()
         guard AudioGate.shouldTranscribe(samples: samples, sampleRate: AudioRecorder.sampleRate) else {
             state = .idle
@@ -102,6 +111,43 @@ final class DictationCoordinator {
         }
         state = .processing
         process(samples)
+    }
+
+    // MARK: - Live preview
+
+    private func startPreviewLoop() {
+        previewTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.previewTick()
+        }
+    }
+
+    private func stopPreviewLoop() {
+        previewTimer?.invalidate()
+        previewTimer = nil
+    }
+
+    private func previewTick() {
+        guard state == .recording, !previewBusy, whisper != nil else { return }
+        var samples = recorder.snapshot()
+        let window = Int(previewWindowSeconds * AudioRecorder.sampleRate)
+        if samples.count > window { samples = Array(samples.suffix(window)) }
+        guard AudioGate.shouldTranscribe(samples: samples, sampleRate: AudioRecorder.sampleRate)
+        else { return }
+
+        previewBusy = true
+        whisperQueue.async { [weak self] in
+            guard let self, let whisper = self.whisper else { return }
+            defer { DispatchQueue.main.async { self.previewBusy = false } }
+            // The user may have released the key while this job sat in the
+            // queue — don't waste the final pass's turn on a stale preview.
+            guard self.state == .recording else { return }
+            let text = TranscriptSanitizer.clean(whisper.transcribe(samples))
+            guard !text.isEmpty else { return }
+            DispatchQueue.main.async {
+                guard self.state == .recording else { return }
+                self.onPreview?(text)
+            }
+        }
     }
 
     // MARK: - Pipeline

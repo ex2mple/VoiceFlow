@@ -29,9 +29,16 @@ public enum CleanupValidator {
         let origLen = Double(original.count)
         let newLen = Double(result.count)
         // Cleanup mostly shortens text; big growth means the model added
-        // content of its own. Short phrases get loose bounds — punctuation
-        // dominates their length.
-        let lower = origLen < 30 ? 0.2 : 0.4
+        // content of its own. Short phrases get loose bounds (punctuation
+        // dominates their length); long ones get a strict floor — a small
+        // model that "summarizes" a long dictation loses the author's
+        // meaning, and the raw transcript is the better fallback.
+        let lower: Double
+        switch origLen {
+        case ..<30: lower = 0.2
+        case ..<120: lower = 0.4
+        default: lower = 0.7
+        }
         let upper = origLen < 30 ? 3.0 : 1.5
         guard newLen >= origLen * lower, newLen <= origLen * upper else { return nil }
 

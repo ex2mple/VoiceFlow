@@ -1,35 +1,61 @@
 import AppKit
 
-/// Floating capsule above the Dock: live waveform while listening,
-/// a travelling wave while Whisper/LLM crunch the audio.
+/// Floating capsule above the Dock: live transcript + smooth wave while
+/// listening, a dimmed travelling wave while Whisper/LLM crunch the audio.
 final class HUDController {
     enum Mode {
         case listening
         case processing
     }
 
+    private static let width: CGFloat = 340
+    private static let waveHeight: CGFloat = 44
+    private static let textHeight: CGFloat = 46
+
     private lazy var panel: NSPanel = makePanel()
-    private let waveform = WaveformView()
+    private let wave = WaveView()
+    private let transcriptLabel = NSTextField(wrappingLabelWithString: "")
+    private var hasTranscript = false
 
     func show(_ mode: Mode) {
-        waveform.mode = mode == .listening ? .live : .synthetic
-        position()
+        switch mode {
+        case .listening:
+            hasTranscript = false
+            transcriptLabel.stringValue = ""
+            wave.mode = .live
+        case .processing:
+            wave.mode = .synthetic
+        }
+        layout()
         panel.orderFrontRegardless()
     }
 
     func hide() {
-        waveform.mode = .off
+        wave.mode = .off
+        hasTranscript = false
+        transcriptLabel.stringValue = ""
         panel.orderOut(nil)
     }
 
     func pushLevel(_ level: Float) {
-        waveform.push(level)
+        wave.push(level)
     }
 
+    /// Live partial transcript while the user is still speaking.
+    func showTranscript(_ text: String) {
+        guard wave.mode != .off, !text.isEmpty else { return }
+        transcriptLabel.stringValue = text
+        if !hasTranscript {
+            hasTranscript = true
+            layout()
+        }
+    }
+
+    // MARK: - Window plumbing
+
     private func makePanel() -> NSPanel {
-        let size = NSSize(width: 220, height: 44)
         let panel = NSPanel(
-            contentRect: NSRect(origin: .zero, size: size),
+            contentRect: NSRect(x: 0, y: 0, width: Self.width, height: Self.waveHeight),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered, defer: false)
         panel.level = .statusBar
@@ -40,38 +66,52 @@ final class HUDController {
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
-        let effect = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
+        let effect = NSVisualEffectView()
         effect.material = .hudWindow
         effect.state = .active
         effect.blendingMode = .behindWindow
         effect.wantsLayer = true
-        effect.layer?.cornerRadius = size.height / 2
+        effect.layer?.cornerRadius = Self.waveHeight / 2
         effect.layer?.masksToBounds = true
 
-        waveform.frame = effect.bounds.insetBy(dx: 18, dy: 8)
-        waveform.autoresizingMask = [.width, .height]
-        effect.addSubview(waveform)
+        transcriptLabel.font = .systemFont(ofSize: 13)
+        transcriptLabel.textColor = .labelColor
+        transcriptLabel.alignment = .center
+        transcriptLabel.maximumNumberOfLines = 2
+        // The tail of the transcript is the fresh part — clip the beginning.
+        transcriptLabel.lineBreakMode = .byTruncatingHead
+
+        effect.addSubview(transcriptLabel)
+        effect.addSubview(wave)
         panel.contentView = effect
         return panel
     }
 
-    /// Bottom-center of the screen the user is looking at, above the Dock.
-    private func position() {
+    /// Bottom-center of the screen, above the Dock; grows upward for the
+    /// transcript so the wave stays put.
+    private func layout() {
         guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+        let height = hasTranscript ? Self.waveHeight + Self.textHeight : Self.waveHeight
         let frame = screen.visibleFrame
-        let size = panel.frame.size
-        panel.setFrameOrigin(NSPoint(
-            x: frame.midX - size.width / 2,
-            y: frame.minY + 28))
+        let origin = NSPoint(x: frame.midX - Self.width / 2, y: frame.minY + 28)
+        panel.setFrame(
+            NSRect(origin: origin, size: NSSize(width: Self.width, height: height)),
+            display: true)
+
+        guard let effect = panel.contentView else { return }
+        effect.layer?.cornerRadius = hasTranscript ? 18 : Self.waveHeight / 2
+        wave.frame = NSRect(x: 18, y: 8, width: Self.width - 36, height: Self.waveHeight - 16)
+        transcriptLabel.frame = NSRect(
+            x: 16, y: Self.waveHeight - 2, width: Self.width - 32, height: Self.textHeight - 8)
+        transcriptLabel.isHidden = !hasTranscript
     }
 }
 
-/// Bar-style level meter (no timeline). Two data sources:
-/// - .live: all bars dance with the CURRENT microphone level — a bell-shaped
-///   envelope keeps the middle tall and the edges short, per-bar jitter makes
-///   it feel alive (Siri style).
-/// - .synthetic: a travelling sine wave (processing indicator)
-final class WaveformView: NSView {
+/// Smooth symmetric wave (no timeline): a filled curve that swells with the
+/// CURRENT voice level. Two data sources:
+/// - .live: control points eased toward level × bell envelope
+/// - .synthetic: a dimmed travelling wave (processing indicator)
+final class WaveView: NSView {
     enum Mode {
         case off
         case live
@@ -80,24 +120,18 @@ final class WaveformView: NSView {
 
     var mode: Mode = .off {
         didSet {
-            heights = Array(repeating: 0, count: Self.barCount)
+            points = Array(repeating: 0, count: Self.pointCount)
             currentLevel = 0
             syncTimer()
             needsDisplay = true
         }
     }
 
-    static let barCount = 32
-    private var heights: [CGFloat] = Array(repeating: 0, count: barCount)
+    static let pointCount = 12
+    private var points: [CGFloat] = Array(repeating: 0, count: pointCount)
     private var currentLevel: CGFloat = 0
     private var phase: CGFloat = 0
     private var timer: Timer?
-
-    /// Bell envelope: 1.0 in the middle, ~0.15 at the edges.
-    private static let envelope: [CGFloat] = (0..<barCount).map { i in
-        let x = (CGFloat(i) - CGFloat(barCount - 1) / 2) / (CGFloat(barCount) / 3.2)
-        return 0.15 + 0.85 * exp(-x * x)
-    }
 
     func push(_ level: Float) {
         guard mode == .live else { return }
@@ -107,7 +141,6 @@ final class WaveformView: NSView {
         let db = 20 * log10(max(CGFloat(level), 0.00005))
         let norm = min(1, max(0, (db + 55) / 40))
         let scaled = min(1, norm * CGFloat(AppSettings.waveSensitivity))
-        // Fast attack, slow release: peaks land instantly, silence drains softly.
         currentLevel = max(scaled, currentLevel)
     }
 
@@ -121,16 +154,23 @@ final class WaveformView: NSView {
     }
 
     private func tick() {
+        phase += 0.4
         switch mode {
         case .live:
-            for i in 0..<Self.barCount {
-                let jitter = CGFloat.random(in: 0.5...1.0)
-                let target = currentLevel * Self.envelope[i] * jitter
-                heights[i] += (target - heights[i]) * 0.45
+            for i in 0..<Self.pointCount {
+                let x = (CGFloat(i) - CGFloat(Self.pointCount - 1) / 2) / (CGFloat(Self.pointCount) / 2.6)
+                let envelope = exp(-x * x)
+                let ripple = 0.5 + 0.5 * sin(phase + CGFloat(i) * 1.3)
+                let target = currentLevel * envelope * ripple
+                points[i] += (target - points[i]) * 0.35
             }
-            currentLevel *= 0.88
+            currentLevel *= 0.9
         case .synthetic:
-            phase += 0.25
+            for i in 0..<Self.pointCount {
+                let x = (CGFloat(i) - CGFloat(Self.pointCount - 1) / 2) / (CGFloat(Self.pointCount) / 2.6)
+                let envelope = exp(-x * x)
+                points[i] = (0.35 + 0.3 * sin(phase * 0.6 + CGFloat(i) * 0.9)) * envelope
+            }
         case .off:
             return
         }
@@ -139,28 +179,27 @@ final class WaveformView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard mode != .off else { return }
-        let barWidth: CGFloat = 3
-        let gap = (bounds.width - CGFloat(Self.barCount) * barWidth) / CGFloat(Self.barCount - 1)
-        let midY = bounds.midY
+        let mid = bounds.midY
+        let step = bounds.width / CGFloat(Self.pointCount - 1)
+        let alpha: CGFloat = mode == .live ? 0.85 : 0.5
 
-        for i in 0..<Self.barCount {
-            let value: CGFloat
-            switch mode {
-            case .live:
-                value = heights[i]
-            case .synthetic:
-                value = 0.35 + 0.3 * sin(phase + CGFloat(i) * 0.45)
-            case .off:
-                value = 0
+        // Filled symmetric lobe above and below the midline.
+        for direction: CGFloat in [1, -1] {
+            let path = NSBezierPath()
+            path.move(to: NSPoint(x: 0, y: mid))
+            for i in 0..<(Self.pointCount - 1) {
+                let y1 = mid - direction * max(1.5, points[i] * bounds.height * 0.48)
+                let y2 = mid - direction * max(1.5, points[i + 1] * bounds.height * 0.48)
+                let midX = CGFloat(i) * step + step / 2
+                path.curve(
+                    to: NSPoint(x: CGFloat(i + 1) * step, y: (y1 + y2) / 2),
+                    controlPoint1: NSPoint(x: midX, y: y1),
+                    controlPoint2: NSPoint(x: midX, y: (y1 + y2) / 2))
             }
-            let height = max(3, value * bounds.height)
-            let x = CGFloat(i) * (barWidth + gap)
-            let bar = NSBezierPath(
-                roundedRect: NSRect(x: x, y: midY - height / 2, width: barWidth, height: height),
-                xRadius: barWidth / 2, yRadius: barWidth / 2)
-            let alpha: CGFloat = mode == .live ? 0.95 : 0.55
+            path.line(to: NSPoint(x: bounds.width, y: mid))
+            path.close()
             NSColor.labelColor.withAlphaComponent(alpha).setFill()
-            bar.fill()
+            path.fill()
         }
     }
 }

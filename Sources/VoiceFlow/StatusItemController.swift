@@ -6,6 +6,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let coordinator: DictationCoordinator
     private let menu = NSMenu()
     private let statusLine = NSMenuItem(title: "Запуск…", action: nil, keyEquivalent: "")
+    private let sensValueLabel = NSTextField(labelWithString: "")
     private let ollamaLine = NSMenuItem(title: "Ollama: проверка…", action: nil, keyEquivalent: "")
     private var noticeResetTimer: Timer?
 
@@ -107,8 +108,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             value: AppSettings.waveSensitivity, minValue: 0.4, maxValue: 2.5,
             target: self, action: #selector(sensitivityChanged(_:)))
         slider.isContinuous = true
-        slider.frame = NSRect(x: 20, y: 3, width: 180, height: 20)
+        slider.frame = NSRect(x: 20, y: 3, width: 145, height: 20)
         container.addSubview(slider)
+        sensValueLabel.frame = NSRect(x: 168, y: 5, width: 44, height: 16)
+        sensValueLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+        sensValueLabel.textColor = .secondaryLabelColor
+        sensValueLabel.stringValue = Self.sensitivityText(AppSettings.waveSensitivity)
+        container.addSubview(sensValueLabel)
         sliderItem.view = container
         menu.addItem(sliderItem)
 
@@ -188,6 +194,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func sensitivityChanged(_ sender: NSSlider) {
         AppSettings.waveSensitivity = sender.doubleValue
+        sensValueLabel.stringValue = Self.sensitivityText(sender.doubleValue)
+    }
+
+    private static func sensitivityText(_ value: Double) -> String {
+        String(format: "×%.1f", value)
     }
 
     @objc private func selectHotkey(_ sender: NSMenuItem) {

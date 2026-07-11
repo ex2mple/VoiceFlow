@@ -39,4 +39,17 @@ func runCleanupValidatorTests() {
         // "да" → "Да." почти вдвое длиннее — для коротких фраз это норма.
         T.equal(CleanupValidator.validate(original: "да", cleaned: "Да."), "Да.")
     }
+
+    T.run("validator: summarized long dictation is rejected") {
+        let orig = String(repeating: "я хочу чтобы эта штука переводила текст в рантайме ", count: 6)
+        let summary = "Хочу перевод текста в рантайме."
+        T.equal(CleanupValidator.validate(original: orig, cleaned: summary), nil)
+    }
+
+    T.run("validator: long dictation lightly trimmed is accepted") {
+        let orig = String(repeating: "ну вот я думаю что надо сделать так и никак иначе ", count: 6)
+        let cleaned = String(repeating: "Я думаю, что надо сделать так и никак иначе. ", count: 6)
+            .trimmingCharacters(in: .whitespaces)
+        T.equal(CleanupValidator.validate(original: orig, cleaned: cleaned), cleaned)
+    }
 }
