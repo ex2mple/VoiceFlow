@@ -18,7 +18,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         item.menu = menu
         render(state: .loadingModel)
 
-        coordinator.onStateChange = { [weak self] state in
+        coordinator.addStateObserver { [weak self] state in
             self?.render(state: state)
         }
         coordinator.onNotice = { [weak self] text in

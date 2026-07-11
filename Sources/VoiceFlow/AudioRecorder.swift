@@ -1,4 +1,5 @@
 import AVFoundation
+import VoiceFlowCore
 
 /// Records from the default microphone, resampled to 16 kHz mono Float32 —
 /// the only format Whisper accepts.
@@ -6,6 +7,9 @@ final class AudioRecorder {
     private let engine = AVAudioEngine()
     private var samples: [Float] = []
     private let lock = NSLock()
+
+    /// Called on the main queue with the RMS of each captured chunk.
+    var onLevel: ((Float) -> Void)?
 
     static let sampleRate: Double = 16000
 
@@ -48,6 +52,10 @@ final class AudioRecorder {
             self.lock.lock()
             self.samples.append(contentsOf: chunk)
             self.lock.unlock()
+            if let onLevel = self.onLevel {
+                let rms = AudioGate.rms(chunk)
+                DispatchQueue.main.async { onLevel(rms) }
+            }
         }
 
         engine.prepare()

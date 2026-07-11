@@ -14,11 +14,18 @@ final class DictationCoordinator {
     }
 
     private(set) var state: State = .loadingModel {
-        didSet { onStateChange?(state) }
+        didSet { for observer in stateObservers { observer(state) } }
     }
-    var onStateChange: ((State) -> Void)?
+    private var stateObservers: [(State) -> Void] = []
     /// Short message worth flashing near the menu bar icon ("вставлено без чистки" etc).
     var onNotice: ((String) -> Void)?
+    /// Live microphone RMS while recording (main queue) — feeds the HUD waveform.
+    var onAudioLevel: ((Float) -> Void)?
+
+    func addStateObserver(_ observer: @escaping (State) -> Void) {
+        stateObservers.append(observer)
+        observer(state)
+    }
 
     let history = HistoryStore()
     private let recorder = AudioRecorder()
@@ -29,6 +36,7 @@ final class DictationCoordinator {
     // MARK: - Startup
 
     func bootstrap() {
+        recorder.onLevel = { [weak self] level in self?.onAudioLevel?(level) }
         if AppSettings.cleanupEnabled {
             Task { [ollama] in
                 await TextCleaner(client: ollama, model: AppSettings.ollamaModel).warmUp()

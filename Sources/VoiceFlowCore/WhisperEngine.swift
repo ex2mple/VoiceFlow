@@ -15,6 +15,7 @@ public final class WhisperEngine {
     public init(modelPath: String) throws {
         var cparams = whisper_context_default_params()
         cparams.use_gpu = true
+        cparams.flash_attn = true
         guard let ctx = whisper_init_from_file_with_params(modelPath, cparams) else {
             throw WhisperError("Не удалось загрузить модель: \(modelPath)")
         }
