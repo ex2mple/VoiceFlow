@@ -66,8 +66,10 @@ final class HUDController {
     }
 }
 
-/// Bar-style waveform. Two data sources:
-/// - .live: bars fed by real microphone RMS via push(_:)
+/// Bar-style level meter (no timeline). Two data sources:
+/// - .live: all bars dance with the CURRENT microphone level — a bell-shaped
+///   envelope keeps the middle tall and the edges short, per-bar jitter makes
+///   it feel alive (Siri style).
 /// - .synthetic: a travelling sine wave (processing indicator)
 final class WaveformView: NSView {
     enum Mode {
@@ -78,34 +80,57 @@ final class WaveformView: NSView {
 
     var mode: Mode = .off {
         didSet {
-            if mode == .live { levels = Array(repeating: 0, count: Self.barCount) }
+            heights = Array(repeating: 0, count: Self.barCount)
+            currentLevel = 0
             syncTimer()
             needsDisplay = true
         }
     }
 
     static let barCount = 32
-    private var levels: [Float] = Array(repeating: 0, count: barCount)
+    private var heights: [CGFloat] = Array(repeating: 0, count: barCount)
+    private var currentLevel: CGFloat = 0
     private var phase: CGFloat = 0
     private var timer: Timer?
 
+    /// Bell envelope: 1.0 in the middle, ~0.15 at the edges.
+    private static let envelope: [CGFloat] = (0..<barCount).map { i in
+        let x = (CGFloat(i) - CGFloat(barCount - 1) / 2) / (CGFloat(barCount) / 3.2)
+        return 0.15 + 0.85 * exp(-x * x)
+    }
+
     func push(_ level: Float) {
         guard mode == .live else { return }
-        levels.removeFirst()
         // Typical speech RMS is ~0.01–0.15; stretch it to fill the bar height.
-        levels.append(min(1, level * 9))
-        needsDisplay = true
+        let scaled = min(1, CGFloat(level) * 9)
+        // Fast attack, slow release: peaks land instantly, silence drains softly.
+        currentLevel = max(scaled, currentLevel)
     }
 
     private func syncTimer() {
         timer?.invalidate()
         timer = nil
-        guard mode == .synthetic else { return }
+        guard mode != .off else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            self.phase += 0.25
-            self.needsDisplay = true
+            self?.tick()
         }
+    }
+
+    private func tick() {
+        switch mode {
+        case .live:
+            for i in 0..<Self.barCount {
+                let jitter = CGFloat.random(in: 0.5...1.0)
+                let target = currentLevel * Self.envelope[i] * jitter
+                heights[i] += (target - heights[i]) * 0.45
+            }
+            currentLevel *= 0.88
+        case .synthetic:
+            phase += 0.25
+        case .off:
+            return
+        }
+        needsDisplay = true
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -118,7 +143,7 @@ final class WaveformView: NSView {
             let value: CGFloat
             switch mode {
             case .live:
-                value = CGFloat(levels[i])
+                value = heights[i]
             case .synthetic:
                 value = 0.35 + 0.3 * sin(phase + CGFloat(i) * 0.45)
             case .off:
