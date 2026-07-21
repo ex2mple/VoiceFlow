@@ -17,4 +17,15 @@ public enum AudioGate {
         guard duration >= minDuration else { return false }
         return rms(samples) >= minRMS
     }
+
+    /// The system-wide «микрофон умер» wedge: coreaudiod keeps the stream
+    /// running but delivers bit-exact zeros. A healthy microphone always has
+    /// a noise floor, so a long all-zero capture means the HAL is stuck —
+    /// distinct from mere silence, which shouldTranscribe already rejects.
+    public static let minDeadDuration: Double = 0.5
+
+    public static func isDeadInput(samples: [Float], sampleRate: Double) -> Bool {
+        guard Double(samples.count) / sampleRate >= minDeadDuration else { return false }
+        return samples.allSatisfy { $0 == 0 }
+    }
 }

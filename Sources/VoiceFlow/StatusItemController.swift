@@ -13,9 +13,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         title: "Включить ИИ-чистку: скачать Ollama…", action: nil, keyEquivalent: "")
     private var noticeResetTimer: Timer?
 
-    init(coordinator: DictationCoordinator) {
+    private let hotkeyListener: HotkeyListener
+    private let keyRecorder = HotkeyRecorderPanel()
+
+    init(coordinator: DictationCoordinator, hotkey: HotkeyListener) {
         self.item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         self.coordinator = coordinator
+        self.hotkeyListener = hotkey
         super.init()
 
         buildMenu()
@@ -95,21 +99,18 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         cleanup.tag = MenuTag.cleanup.rawValue
         menu.addItem(cleanup)
 
-        let hotkeyMenu = NSMenu()
-        for hk in Hotkey.allCases {
-            let i = NSMenuItem(title: hk.title, action: #selector(selectHotkey(_:)), keyEquivalent: "")
-            i.target = self
-            i.representedObject = hk.rawValue
-            hotkeyMenu.addItem(i)
-        }
-        let hotkeyRoot = NSMenuItem(title: "Клавиша диктовки", action: nil, keyEquivalent: "")
-        hotkeyRoot.submenu = hotkeyMenu
-        menu.addItem(hotkeyRoot)
+        menu.addItem(hotkeySubmenu(title: "Клавиша диктовки", tag: .hotkey))
+        menu.addItem(hotkeySubmenu(title: "Клавиша перевода EN", tag: .translateHotkey))
 
         let micRoot = NSMenuItem(title: "Микрофон", action: nil, keyEquivalent: "")
         micRoot.submenu = NSMenu()
         micRoot.tag = MenuTag.microphone.rawValue
         menu.addItem(micRoot)
+
+        let fixMic = NSMenuItem(
+            title: "Починить микрофон", action: #selector(fixMicrophone), keyEquivalent: "")
+        fixMic.target = self
+        menu.addItem(fixMic)
 
         let sounds = NSMenuItem(
             title: "Звуки записи", action: #selector(toggleSounds), keyEquivalent: "")
@@ -185,7 +186,43 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private enum MenuTag: Int {
-        case cleanup = 1, history, login, accessibility, liveText, microphone, sounds
+        case cleanup = 1, history, login, accessibility, liveText, microphone, sounds,
+             hotkey, translateHotkey
+    }
+
+    private func hotkeySubmenu(title: String, tag: MenuTag) -> NSMenuItem {
+        // Наполняется в menuNeedsUpdate — записанная F-клавиша появляется
+        // отдельной строкой с галочкой.
+        let root = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        root.submenu = NSMenu()
+        root.tag = tag.rawValue
+        return root
+    }
+
+    private func populateHotkeyMenu(tag: MenuTag, current: HotkeySpec,
+                                    select: Selector, record: Selector) {
+        guard let submenu = menu.item(withTag: tag.rawValue)?.submenu else { return }
+        submenu.removeAllItems()
+        if case .key = current {
+            let i = NSMenuItem(title: current.title, action: select, keyEquivalent: "")
+            i.target = self
+            i.representedObject = current.storageValue
+            i.state = .on
+            submenu.addItem(i)
+            submenu.addItem(.separator())
+        }
+        for hk in Hotkey.allCases {
+            let spec = HotkeySpec.modifier(hk)
+            let i = NSMenuItem(title: hk.title, action: select, keyEquivalent: "")
+            i.target = self
+            i.representedObject = spec.storageValue
+            i.state = spec == current ? .on : .off
+            submenu.addItem(i)
+        }
+        submenu.addItem(.separator())
+        let rec = NSMenuItem(title: "Записать клавишу…", action: record, keyEquivalent: "")
+        rec.target = self
+        submenu.addItem(rec)
     }
 
     private let statsWindow = StatsWindowController()
@@ -226,11 +263,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             }
         }
 
-        if let hotkeyMenu = menu.items.first(where: { $0.submenu != nil && $0.tag == 0 && $0.title == "Клавиша диктовки" })?.submenu {
-            for i in hotkeyMenu.items {
-                i.state = (i.representedObject as? String) == AppSettings.hotkey.rawValue ? .on : .off
-            }
-        }
+        populateHotkeyMenu(tag: .hotkey, current: AppSettings.hotkey,
+                           select: #selector(selectHotkey(_:)),
+                           record: #selector(recordDictationHotkey))
+        populateHotkeyMenu(tag: .translateHotkey, current: AppSettings.translateHotkey,
+                           select: #selector(selectTranslateHotkey(_:)),
+                           record: #selector(recordTranslateHotkey))
 
         if let historyMenu = menu.item(withTag: MenuTag.history.rawValue)?.submenu {
             historyMenu.removeAllItems()
@@ -278,6 +316,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         AppSettings.inputDeviceUID = sender.representedObject as? String
     }
 
+    /// Manual escape hatch for the system-wide mic wedge — same volume-rewrite
+    /// trick the app applies automatically when a recording comes back dead.
+    @objc private func fixMicrophone() {
+        let kicked = AudioDevices.kickInput(uid: AppSettings.inputDeviceUID)
+        flash(kicked ? "Микрофон перезапущен" : "Не удалось — подёргайте слайдер входа")
+    }
+
     @objc private func openStats() {
         statsWindow.show(stats: coordinator.stats)
     }
@@ -303,8 +348,59 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func selectHotkey(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String,
-              let hk = Hotkey(rawValue: raw) else { return }
-        AppSettings.hotkey = hk
+              let spec = HotkeySpec(storageValue: raw) else { return }
+        applyHotkeys(dictate: spec, translate: nil)
+    }
+
+    @objc private func selectTranslateHotkey(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let spec = HotkeySpec(storageValue: raw) else { return }
+        applyHotkeys(dictate: nil, translate: spec)
+    }
+
+    @objc private func recordDictationHotkey() {
+        captureHotkey(prompt: "Нажмите клавишу для диктовки") { [weak self] spec in
+            self?.applyHotkeys(dictate: spec, translate: nil)
+        }
+    }
+
+    @objc private func recordTranslateHotkey() {
+        captureHotkey(prompt: "Нажмите клавишу для перевода") { [weak self] spec in
+            self?.applyHotkeys(dictate: nil, translate: spec)
+        }
+    }
+
+    private func captureHotkey(prompt: String, apply: @escaping (HotkeySpec) -> Void) {
+        // Пока идёт запись, боевой слушатель молчит — иначе проба клавиши
+        // тут же запустила бы диктовку.
+        hotkeyListener.stop()
+        keyRecorder.begin(prompt: prompt) { [weak self] spec in
+            if let spec {
+                apply(spec) // applyHotkeys перезапустит слушатель
+            } else {
+                self?.hotkeyListener.start()
+            }
+        }
+    }
+
+    private func applyHotkeys(dictate: HotkeySpec?, translate: HotkeySpec?) {
+        if let dictate {
+            if dictate == AppSettings.translateHotkey, dictate != AppSettings.hotkey {
+                AppSettings.translateHotkey = AppSettings.hotkey
+                flash("Клавиши поменялись местами")
+            }
+            AppSettings.hotkey = dictate
+        }
+        if let translate {
+            if translate == AppSettings.hotkey, translate != AppSettings.translateHotkey {
+                AppSettings.hotkey = AppSettings.translateHotkey
+                flash("Клавиши поменялись местами")
+            }
+            AppSettings.translateHotkey = translate
+        }
+        // Перезапуск: слушателю может понадобиться (или больше не нужен)
+        // event tap для F-клавиш.
+        hotkeyListener.start()
         render(state: coordinator.state)
     }
 

@@ -39,6 +39,7 @@ struct DayStat: Identifiable {
 struct StatsView: View {
     let snapshot: StatsSnapshot
     let days: [DayStat]
+    @State private var wpm = AppSettings.typingWPM
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -48,7 +49,24 @@ struct StatsView: View {
                 tile("Всего", "\(snapshot.wordsTotal)",
                      StatsStore.wordsForm(snapshot.wordsTotal))
                 tile("Диктовок", "\(snapshot.dictationsTotal)", "")
-                tile("Сэкономлено", "≈\(snapshot.savedMinutes)", "мин у клавиатуры")
+                tile("Сэкономлено", "≈\(snapshot.savedMinutes(typingWPM: wpm))",
+                     "мин у клавиатуры")
+            }
+
+            HStack(spacing: 6) {
+                Text("Моя скорость печати:")
+                TextField("", value: $wpm, format: .number.precision(.fractionLength(0)))
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 52)
+                Stepper("", value: $wpm, in: 5...300, step: 5)
+                    .labelsHidden()
+                Text("слов/мин — от неё считается экономия")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .onChange(of: wpm) { _, newValue in
+                AppSettings.typingWPM = newValue
             }
 
             VStack(alignment: .leading, spacing: 6) {

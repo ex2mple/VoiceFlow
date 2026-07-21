@@ -1,32 +1,5 @@
 import Foundation
-
-enum Hotkey: String, CaseIterable {
-    case rightOption
-    case rightCommand
-
-    var keyCode: UInt16 {
-        switch self {
-        case .rightOption: return 61
-        case .rightCommand: return 54
-        }
-    }
-
-    var flag: NSEvent.ModifierFlags {
-        switch self {
-        case .rightOption: return .option
-        case .rightCommand: return .command
-        }
-    }
-
-    var title: String {
-        switch self {
-        case .rightOption: return "Правый ⌥ Option"
-        case .rightCommand: return "Правый ⌘ Command"
-        }
-    }
-}
-
-import AppKit
+import VoiceFlowCore
 
 enum AppSettings {
     private static let d = UserDefaults.standard
@@ -36,14 +9,31 @@ enum AppSettings {
         set { d.set(newValue, forKey: "cleanupEnabled") }
     }
 
-    static var hotkey: Hotkey {
-        get { Hotkey(rawValue: d.string(forKey: "hotkey") ?? "") ?? .rightOption }
-        set { d.set(newValue.rawValue, forKey: "hotkey") }
+    static var hotkey: HotkeySpec {
+        get { HotkeySpec(storageValue: d.string(forKey: "hotkey") ?? "") ?? .modifier(.rightOption) }
+        set { d.set(newValue.storageValue, forKey: "hotkey") }
     }
 
-    /// Translation mode always lives on «the other» modifier key.
-    static var translateHotkey: Hotkey {
-        hotkey == .rightOption ? .rightCommand : .rightOption
+    /// Own setting since the keys became configurable; the fallback keeps the
+    /// old behaviour «перевод на другой из двух клавиш» for existing users.
+    static var translateHotkey: HotkeySpec {
+        get {
+            if let hk = HotkeySpec(storageValue: d.string(forKey: "translateHotkey") ?? "") {
+                return hk
+            }
+            return hotkey == .modifier(.rightOption)
+                ? .modifier(.rightCommand) : .modifier(.rightOption)
+        }
+        set { d.set(newValue.storageValue, forKey: "translateHotkey") }
+    }
+
+    /// Скорость печати пользователя (слов/мин) — база для «сэкономлено».
+    static var typingWPM: Double {
+        get {
+            let v = d.double(forKey: "typingWPM")
+            return v > 0 ? v : 40
+        }
+        set { d.set(min(300, max(5, newValue)), forKey: "typingWPM") }
     }
 
     static var soundsEnabled: Bool {

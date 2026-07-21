@@ -6,10 +6,20 @@ public struct StatsSnapshot: Equatable {
     public let dictationsTotal: Int
     public let secondsRecorded: Double
 
-    /// Rough «время за клавиатурой, которое не потрачено»: ~1 сек на слово
-    /// (разница между печатью ~40 слов/мин и речью ~130 слов/мин).
-    public var savedMinutes: Int {
-        Int((Double(wordsTotal) * 1.0 / 60).rounded())
+    public init(wordsToday: Int, wordsTotal: Int, dictationsTotal: Int, secondsRecorded: Double) {
+        self.wordsToday = wordsToday
+        self.wordsTotal = wordsTotal
+        self.dictationsTotal = dictationsTotal
+        self.secondsRecorded = secondsRecorded
+    }
+
+    /// «Время за клавиатурой, которое не потрачено»: сколько заняла бы
+    /// печать всех слов на скорости пользователя минус время, реально
+    /// потраченное на диктовку.
+    public func savedMinutes(typingWPM: Double) -> Int {
+        guard typingWPM > 0 else { return 0 }
+        let typingSeconds = Double(wordsTotal) / typingWPM * 60
+        return max(0, Int(((typingSeconds - secondsRecorded) / 60).rounded()))
     }
 }
 

@@ -100,7 +100,18 @@ final class DictationCoordinator {
             finishRecording()
             return
         }
-        guard state == .idle, whisper != nil else { return }
+        guard state == .idle, whisper != nil else {
+            DebugLog.log("hotkey: ignored, state=\(state) whisperLoaded=\(whisper != nil)")
+            // The press used to be swallowed silently — «хоткей не работает».
+            switch state {
+            case .loadingModel: onNotice?("Модель ещё загружается…")
+            case .downloadingModel(let p): onNotice?("Скачивается модель: \(p)%")
+            case .processing: onNotice?("Ещё обрабатываю предыдущую запись…")
+            case .failed(let message): onNotice?("Ошибка: \(message)")
+            case .idle, .recording: break
+            }
+            return
+        }
         sessionIsTranslate = translate
         guard Permissions.microphoneGranted else {
             Permissions.requestMicrophone { [weak self] granted in
@@ -143,6 +154,17 @@ final class DictationCoordinator {
         pressedAt = nil
         stopPreviewLoop()
         let samples = recorder.stop()
+        // The system-wide mic wedge: stream runs but delivers exact zeros.
+        // Rewriting the input volume (the user's slider trick) revives it.
+        if AudioGate.isDeadInput(samples: samples, sampleRate: AudioRecorder.sampleRate) {
+            let kicked = AudioDevices.kickInput(uid: AppSettings.inputDeviceUID)
+            DebugLog.log("mic: dead input (all zeros), kick=\(kicked)")
+            onNotice?(kicked
+                ? "Микрофон завис — перезапустил, повторите"
+                : "Микрофон молчит — проверьте громкость входа")
+            state = .idle
+            return
+        }
         guard AudioGate.shouldTranscribe(samples: samples, sampleRate: AudioRecorder.sampleRate) else {
             DebugLog.log("gate: REJECTED (silence or too short)")
             state = .idle

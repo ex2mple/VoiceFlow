@@ -4,7 +4,11 @@ import VoiceFlowCore
 /// Records from the default microphone, resampled to 16 kHz mono Float32 —
 /// the only format Whisper accepts.
 final class AudioRecorder {
-    private let engine = AVAudioEngine()
+    /// Fresh engine per recording: a long-lived one accumulates stale AUHAL
+    /// state across device switches and start failures (a failed start left
+    /// the tap installed — the next installTap would throw NSException), and
+    /// a once-forced input device stuck even after «Системный по умолчанию».
+    private var engine: AVAudioEngine?
     private var samples: [Float] = []
     private let lock = NSLock()
 
@@ -18,6 +22,8 @@ final class AudioRecorder {
         samples.removeAll()
         lock.unlock()
 
+        let engine = AVAudioEngine()
+        self.engine = engine
         let input = engine.inputNode
         // Route to the user-chosen microphone (nil = system default).
         if let uid = AppSettings.inputDeviceUID,
@@ -33,6 +39,7 @@ final class AudioRecorder {
         let inFormat = input.outputFormat(forBus: 0)
         DebugLog.log("recorder: start, format=\(inFormat.sampleRate)Hz ch=\(inFormat.channelCount)")
         guard inFormat.sampleRate > 0 else {
+            self.engine = nil
             throw NSError(domain: "VoiceFlow", code: 1, userInfo: [
                 NSLocalizedDescriptionKey: "Микрофон недоступен"])
         }
@@ -40,6 +47,7 @@ final class AudioRecorder {
             commonFormat: .pcmFormatFloat32, sampleRate: Self.sampleRate,
             channels: 1, interleaved: false)!
         guard let converter = AVAudioConverter(from: inFormat, to: outFormat) else {
+            self.engine = nil
             throw NSError(domain: "VoiceFlow", code: 2, userInfo: [
                 NSLocalizedDescriptionKey: "Не удалось создать конвертер аудио"])
         }
@@ -77,12 +85,19 @@ final class AudioRecorder {
         }
 
         engine.prepare()
-        try engine.start()
+        do {
+            try engine.start()
+        } catch {
+            input.removeTap(onBus: 0)
+            self.engine = nil
+            throw error
+        }
     }
 
     func stop() -> [Float] {
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
+        engine?.inputNode.removeTap(onBus: 0)
+        engine?.stop()
+        engine = nil
         lock.lock()
         defer { lock.unlock() }
         DebugLog.log("recorder: stop, samples=\(samples.count) "

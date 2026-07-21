@@ -43,6 +43,23 @@ func runStatsTests() {
         T.equal(s.snapshot(now: day1).dictationsTotal, 0)
     }
 
+    T.run("stats: экономия времени зависит от скорости печати") {
+        // 1000 слов, 5 минут диктовки. Печать при 40 wpm заняла бы 25 мин
+        // (сэкономлено 20), при 100 wpm — 10 мин (сэкономлено 5).
+        let snap = StatsSnapshot(
+            wordsToday: 0, wordsTotal: 1000, dictationsTotal: 1, secondsRecorded: 300)
+        T.equal(snap.savedMinutes(typingWPM: 40), 20)
+        T.equal(snap.savedMinutes(typingWPM: 100), 5)
+    }
+
+    T.run("stats: экономия не бывает отрицательной") {
+        // Печатает быстрее, чем диктовал — сэкономлено 0, а не минус.
+        let snap = StatsSnapshot(
+            wordsToday: 0, wordsTotal: 100, dictationsTotal: 1, secondsRecorded: 600)
+        T.equal(snap.savedMinutes(typingWPM: 100), 0)
+        T.equal(snap.savedMinutes(typingWPM: 0), 0)
+    }
+
     T.run("stats: русские формы слова") {
         T.equal(StatsStore.wordsForm(1), "слово")
         T.equal(StatsStore.wordsForm(3), "слова")

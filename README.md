@@ -10,12 +10,13 @@ Hold a key, speak, release — polished text appears in whatever app you're typi
 
 ## Features
 
-- 🎙 **Push-to-talk dictation** — hold right ⌥ Option, speak, release. Or quick-tap for hands-free mode: recording runs until the next tap.
+- 🎙 **Push-to-talk dictation** — hold right ⌥ Option (or record your own key: any modifier or F-key), speak, release. Or quick-tap for hands-free mode: recording runs until the next tap.
 - 🧹 **AI cleanup** — a local LLM removes filler words («э-э», "um"), collapses self-corrections (*"on Friday… no, Saturday"* → *"on Saturday"*), and fixes punctuation. If the LLM is down, the raw transcript is inserted — dictation always works.
-- 🌍 **Translate mode** — hold right ⌘ instead: dictate in Russian, English comes out.
+- 🌍 **Translate mode** — hold right ⌘ (also configurable) instead: dictate in Russian, English comes out.
 - 📺 **Live transcription** — a floating capsule shows a live waveform and the text as you speak; or stream it straight into the focused text field.
 - 📖 **Personal dictionary** — teach Whisper your names, brands, and jargon (plain text file).
-- 📊 **Stats window** — words per day chart, total dictations, estimated time saved.
+- ⌨️ **Rebindable hotkeys** — pick any modifier for dictation and translation from the menu, or *«Записать клавишу…»* to capture a modifier or F-key by pressing it.
+- 📊 **Stats window** — words per day chart, total dictations, and time saved computed against *your own* typing speed (editable, words/min).
 - 🎧 **Mic picker, sounds, auto-gain** — choose an input device, get audio feedback, and quiet microphones are normalized automatically.
 - 🇷🇺🇬🇧 **Russian + English** — including code-switching mid-sentence.
 
@@ -66,7 +67,7 @@ VOICEFLOW_E2E=1 VOICEFLOW_E2E_WAV=/tmp/d.wav make test
 
 | Stage | Tech | Notes |
 |---|---|---|
-| Hotkey | `NSEvent` global monitor | right ⌥ dictate / right ⌘ translate; tap = hands-free |
+| Hotkey | `NSEvent` monitors + CGEventTap | recordable: any modifier or F1–F20 (F-keys are swallowed by the tap so they don't reach apps); tap = hands-free |
 | Audio | `AVAudioEngine` → 16 kHz mono | silence gate + peak auto-gain |
 | Speech→text | whisper.cpp, `large-v3-turbo` q5_0 | Metal, flash attention, user dictionary via `initial_prompt` |
 | Cleanup | Ollama `qwen3:4b-instruct` | few-shot prompt; length validator rejects "summarizing"; falls back to raw text |
@@ -76,7 +77,9 @@ Project layout: `Sources/VoiceFlowCore` — AppKit-free logic, fully unit-tested
 
 ## Troubleshooting
 
-- **Hotkey stopped responding** (e.g. after sleep) — the app re-registers its listeners on wake and has a watchdog, but if it ever happens: quit and relaunch from the menu bar icon.
+- **Hotkey stopped responding** — the app re-registers its listeners on wake, screen unlock, session switch and on a 5-minute heartbeat, and flashes a reason in the menu bar when a press is ignored (model loading, previous recording still processing). If it still happens: check Secure Input (a password field or Terminal's Secure Keyboard Entry blocks global event monitors system-wide), or quit and relaunch from the menu bar icon.
+- **Microphone records silence in every app** (a macOS-wide coreaudiod wedge) — VoiceFlow detects an all-zero recording, revives the device automatically and asks you to retry; «Починить микрофон» in the menu does the same on demand.
+- **F-key hotkey does nothing** — on Mac keyboards the top row sends media keys by default; hold **Fn** with it, or enable *«Use F1, F2, etc. as standard function keys»* in System Settings → Keyboard. Assigning an F-key also needs Accessibility permission (for the event tap).
 - **"Вставлено без ИИ-чистки"** — Ollama isn't running (`brew services start ollama`) or the model isn't pulled.
 - **Nothing inserts** — check Accessibility permission; the text is always in the clipboard and in the History menu as a fallback.
 - **Whisper hallucinates on silence** («Субтитры сделал DimaTorzok») — known Whisper quirk; the built-in filter catches the common ones, PRs with new phrases welcome.
