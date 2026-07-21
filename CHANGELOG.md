@@ -3,7 +3,7 @@
 All notable changes to VoiceFlow are documented here.
 The format loosely follows [Keep a Changelog](https://keepachangelog.com).
 
-## [Unreleased]
+## [0.2.0] — 2026-07-21
 
 ### Added
 - **Rebindable hotkeys.** Both the dictation and translation keys are now
